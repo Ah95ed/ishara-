@@ -1,0 +1,46 @@
+# =====================================================================
+# hand.yaml — إعداد Dataset لتدريب YOLO11n-pose على 21 نقطة اليد
+# =====================================================================
+# الاستخدام:
+#   from ultralytics import YOLO
+#   model = YOLO("yolo11n-pose.pt")
+#   model.train(data="hand.yaml", epochs=100, imgsz=640)
+# =====================================================================
+
+path: ./datasets/hand-keypoints   # مسر Dataset الجذر
+train: train/images                # صور التدريب
+val:   val/images                  # صور التحقق
+
+# الفئات
+names:
+  0: hand                          # فئة واحدة فقط — يد إنسان
+
+# شكل Keypoints: [عدد النقاط, أبعاد كل نقطة]
+# 21 نقطة × [x, y, visibility]
+kpt_shape: [21, 3]
+
+# ترتيب الـ 21 Keypoint (مطابق لـ MediaPipe Hand Landmarks)
+# ---------------------------------------------------------------
+# Index  Name          Description
+#   0    wrist         المعصم
+#   1    thumb_cmc     إبهام — مفصل CMC
+#   2    thumb_mcp     إبهام — مفصل MCP
+#   3    thumb_ip      إبهام — مفصل IP
+#   4    thumb_tip     إبهام — الطرف
+#   5    index_mcp     سبابة — مفصل MCP
+#   6    index_pip     سبابة — مفصل PIP
+#   7    index_dip     سبابة — مفصل DIP
+#   8    index_tip     سبابة — الطرف
+#   9    middle_mcp    وسطى — مفصل MCP
+#  10    middle_pip    وسطى — مفصل PIP
+#  11    middle_dip    وسطى — مفصل DIP
+#  12    middle_tip    وسطى — الطرف
+#  13    ring_mcp      بنصر — مفصل MCP
+#  14    ring_pip      بنصر — مفصل PIP
+#  15    ring_dip      بنصر — مفصل DIP
+#  16    ring_tip      بنصر — الطرف
+#  17    pinky_mcp     خنصر — مفصل MCP
+#  18    pinky_pip     خنصر — مفصل PIP
+#  19    pinky_dip     خنصر — مفصل DIP
+#  20    pinky_tip     خنصر — الطرف
+# ---------------------------------------------------------------

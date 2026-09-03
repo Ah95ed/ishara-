@@ -1,0 +1,22 @@
+# متطلبات Python لتدريب YOLO Hand Pose Model
+# =============================================
+# تثبيت:
+#   pip install -r requirements.txt
+#
+# للتدريب على GPU (NVIDIA):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+#   pip install -r requirements.txt
+
+# الحزمة الأساسية
+ultralytics>=8.3.0          # YOLO11n-pose + Training + Export
+
+# معالجة الصور
+opencv-python>=4.9.0         # قراءة الصور والفيديو
+
+# تصدير TFLite
+tensorflow>=2.16.0           # مطلوب لتصدير TFLite (int8/float16)
+
+# عناصر مساعدة (عادةً مثبتة مع ultralytics)
+numpy>=1.24.0
+Pillow>=10.0.0
+PyYAML>=6.0
