@@ -177,7 +177,9 @@ class _HomeViewState extends State<HomeView> {
                   isHandDetected: cameraProvider.isRealHand,
                   isStreaming: cameraProvider.isStreaming,
                   activeSignLabel: glossController.currentSign,
-                  isStable: glossController.stabilityState == SignStabilityState.stable,
+                  isStable:
+                      glossController.stabilityState ==
+                      SignStabilityState.stable,
                 ),
                 Positioned(
                   top: 12,
@@ -236,7 +238,9 @@ class _HomeViewState extends State<HomeView> {
 
         return Card(
           elevation: 2,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -256,13 +260,19 @@ class _HomeViewState extends State<HomeView> {
                         const SizedBox(width: 8),
                         const Text(
                           'ترجمة لغة الإشارة',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
                         ),
                       ],
                     ),
                     if (isGenerating)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.amber.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(12),
@@ -274,19 +284,29 @@ class _HomeViewState extends State<HomeView> {
                             SizedBox(
                               width: 12,
                               height: 12,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.amber),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.amber,
+                              ),
                             ),
                             SizedBox(width: 6),
                             Text(
                               'جارٍ صياغة الجملة...',
-                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.amber),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.amber,
+                              ),
                             ),
                           ],
                         ),
                       )
                     else if (glossController.isModelReady)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.green.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(12),
@@ -295,11 +315,19 @@ class _HomeViewState extends State<HomeView> {
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.check_circle_outline, size: 13, color: Colors.green),
+                            Icon(
+                              Icons.check_circle_outline,
+                              size: 13,
+                              color: Colors.green,
+                            ),
                             SizedBox(width: 4),
                             Text(
                               'Gemma3 جاهز',
-                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.green),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.green,
+                              ),
                             ),
                           ],
                         ),
@@ -314,10 +342,17 @@ class _HomeViewState extends State<HomeView> {
                     children: [
                       const Text(
                         'الإشارة الفورية (Fast Path): ',
-                        style: TextStyle(fontSize: 13, color: Colors.grey, fontWeight: FontWeight.w500),
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: Theme.of(context).colorScheme.primaryContainer,
                           borderRadius: BorderRadius.circular(14),
@@ -327,7 +362,9 @@ class _HomeViewState extends State<HomeView> {
                           style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.bold,
-                            color: Theme.of(context).colorScheme.onPrimaryContainer,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onPrimaryContainer,
                           ),
                         ),
                       ),
@@ -370,7 +407,9 @@ class _HomeViewState extends State<HomeView> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                         color: Theme.of(context).colorScheme.outlineVariant,
@@ -393,7 +432,9 @@ class _HomeViewState extends State<HomeView> {
                           icon: const Icon(Icons.volume_up_rounded),
                           tooltip: 'نطق الجملة',
                           onPressed: () {
-                            context.read<SignProvider>().speakText(glossController.currentSentence!);
+                            context.read<SignProvider>().speakText(
+                              glossController.currentSentence!,
+                            );
                           },
                         ),
                       ],
@@ -419,29 +460,47 @@ class _HomeViewState extends State<HomeView> {
   }
 
   Widget _buildDebugPanelSection(BuildContext context) {
-    return Consumer<CameraProvider>(
-      builder: (context, cameraProvider, _) {
-        final isFrontCamera = cameraProvider.cameraController?.description.lensDirection ==
-            CameraLensDirection.front;
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        title: const Text(
+          'أدوات المطور والفحص الفني (MediaPipe)',
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.grey,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        leading: const Icon(Icons.tune_rounded, size: 20, color: Colors.grey),
+        children: [
+          Consumer<CameraProvider>(
+            builder: (context, cameraProvider, _) {
+              final isFrontCamera =
+                  cameraProvider.cameraController?.description.lensDirection ==
+                  CameraLensDirection.front;
 
-        return HandLandmarksDebugPanel(
-          landmarks: cameraProvider.latestLandmarks,
-          rawHandDetected: cameraProvider.rawHandDetected,
-          handDetectorConfidence: cameraProvider.handDetectorConfidence,
-          mediaPipePresenceConfidence: cameraProvider.mediaPipePresenceConfidence,
-          trackingConfidence: cameraProvider.trackingConfidence,
-          frameId: cameraProvider.frameId,
-          resultFrameId: cameraProvider.resultFrameId,
-          isStaleResult: cameraProvider.isStaleResult,
-          geometryValid: cameraProvider.geometryValid,
-          isRealHand: cameraProvider.isRealHand,
-          rejectionReason: cameraProvider.rejectionReason,
-          consecutiveValidFrames: cameraProvider.consecutiveValidFrames,
-          fps: cameraProvider.currentFps,
-          latencyMs: cameraProvider.lastProcessingTimeMs,
-          isFrontCamera: isFrontCamera,
-        );
-      },
+              return HandLandmarksDebugPanel(
+                landmarks: cameraProvider.latestLandmarks,
+                rawHandDetected: cameraProvider.rawHandDetected,
+                handDetectorConfidence: cameraProvider.handDetectorConfidence,
+                mediaPipePresenceConfidence:
+                    cameraProvider.mediaPipePresenceConfidence,
+                trackingConfidence: cameraProvider.trackingConfidence,
+                frameId: cameraProvider.frameId,
+                resultFrameId: cameraProvider.resultFrameId,
+                isStaleResult: cameraProvider.isStaleResult,
+                geometryValid: cameraProvider.geometryValid,
+                isRealHand: cameraProvider.isRealHand,
+                rejectionReason: cameraProvider.rejectionReason,
+                consecutiveValidFrames: cameraProvider.consecutiveValidFrames,
+                fps: cameraProvider.currentFps,
+                latencyMs: cameraProvider.lastProcessingTimeMs,
+                isFrontCamera: isFrontCamera,
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 }
