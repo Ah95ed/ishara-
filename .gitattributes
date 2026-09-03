@@ -1,1 +1,2 @@
+*.gguf filter=lfs diff=lfs merge=lfs -text
 assets/models/Gloss2Text-V1-Gemma3-270M-Q5_K_M.gguf filter=lfs diff=lfs merge=lfs -text
