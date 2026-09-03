@@ -19,7 +19,7 @@ import 'package:ishara/theme/app_theme.dart';
 import 'package:ishara/views/home_view.dart';
 import 'package:provider/provider.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const IsharaApp());
 }
