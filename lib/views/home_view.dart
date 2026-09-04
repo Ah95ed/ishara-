@@ -231,18 +231,16 @@ class _HomeViewState extends State<HomeView> {
   Widget _buildTranslationSection(BuildContext context) {
     return Consumer<GlossController>(
       builder: (context, glossController, _) {
-        final hasSign = glossController.hasSign;
         final hasSentence = glossController.hasSentence;
         final isGenerating = glossController.isGenerating;
-        final tokens = glossController.bufferedGlossTokens;
 
         return Card(
-          elevation: 2,
+          elevation: 3,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(22),
           ),
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -252,17 +250,24 @@ class _HomeViewState extends State<HomeView> {
                   children: [
                     Row(
                       children: [
-                        Icon(
-                          Icons.auto_awesome,
-                          size: 20,
-                          color: Theme.of(context).colorScheme.primary,
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.auto_awesome,
+                            size: 20,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 10),
                         const Text(
                           'ترجمة لغة الإشارة',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                            fontSize: 17,
                           ),
                         ),
                       ],
@@ -270,12 +275,12 @@ class _HomeViewState extends State<HomeView> {
                     if (isGenerating)
                       Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
+                          horizontal: 12,
+                          vertical: 5,
                         ),
                         decoration: BoxDecoration(
                           color: Colors.amber.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(14),
                           border: Border.all(color: Colors.amber),
                         ),
                         child: const Row(
@@ -293,8 +298,8 @@ class _HomeViewState extends State<HomeView> {
                             Text(
                               'جارٍ صياغة الجملة...',
                               style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
                                 color: Colors.amber,
                               ),
                             ),
@@ -317,12 +322,12 @@ class _HomeViewState extends State<HomeView> {
                           children: [
                             Icon(
                               Icons.check_circle_outline,
-                              size: 13,
+                              size: 14,
                               color: Colors.green,
                             ),
                             SizedBox(width: 4),
                             Text(
-                              'Gemma3 جاهز',
+                              'جاهز',
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
@@ -334,119 +339,82 @@ class _HomeViewState extends State<HomeView> {
                       ),
                   ],
                 ),
-                const Divider(height: 20),
+                const Divider(height: 24),
 
-                // 1. Fast Path: الإشارة الفورية المستقرة
-                if (hasSign) ...[
-                  Row(
-                    children: [
-                      const Text(
-                        'الإشارة الفورية (Fast Path): ',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primaryContainer,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Text(
-                          glossController.currentSign!,
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onPrimaryContainer,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                ],
-
-                // تسلسل الإشارات المسجلة
-                if (tokens.isNotEmpty) ...[
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 4,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      const Text(
-                        'التسلسل: ',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                      ...tokens.map(
-                        (t) => Chip(
-                          label: Text(t, style: const TextStyle(fontSize: 12)),
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.clear_all, size: 18),
-                        tooltip: 'مسح التسلسل',
-                        onPressed: glossController.clearAll,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                ],
-
-                // 2. Sentence Path: الجملة المكتملة المصوغة عبر Gemma3 GGUF
+                // ── عرض الجملة النهائية فقط (Clean Translation Area) ──
                 if (hasSentence) ...[
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.all(14),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
                     decoration: BoxDecoration(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(16),
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(18),
                       border: Border.all(
-                        color: Theme.of(context).colorScheme.outlineVariant,
+                        color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.6),
                       ),
                     ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            glossController.currentSentence!,
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.bold,
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.volume_up_rounded),
-                          tooltip: 'نطق الجملة',
-                          onPressed: () {
-                            context.read<SignProvider>().speakText(
-                              glossController.currentSentence!,
-                            );
-                          },
-                        ),
-                      ],
+                    child: Text(
+                      glossController.currentSentence!,
+                      textAlign: TextAlign.start,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        height: 1.5,
+                        letterSpacing: 0.2,
+                      ),
                     ),
                   ),
-                ] else if (!hasSign) ...[
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
+                  const SizedBox(height: 14),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      FilledButton.tonalIcon(
+                        onPressed: () {
+                          context.read<SignProvider>().speakText(
+                            glossController.currentSentence!,
+                          );
+                        },
+                        icon: const Icon(Icons.volume_up_rounded, size: 20),
+                        label: const Text('نطق الجملة'),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filledTonal(
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('تم مسح الجملة'),
+                              duration: Duration(seconds: 1),
+                            ),
+                          );
+                          glossController.clearAll();
+                        },
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        tooltip: 'مسح وبدء جملة جديدة',
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
                     child: Center(
-                      child: Text(
-                        'وجّه يدك نحو الكاميرا لبدء التعرف على الإشارات',
-                        style: TextStyle(fontSize: 13, color: Colors.grey),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.sign_language_rounded,
+                            size: 40,
+                            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
+                          ),
+                          const SizedBox(height: 10),
+                          const Text(
+                            'وجّه يدك نحو الكاميرا لبدء الترجمة',
+                            style: TextStyle(
+                              fontSize: 15,
+                              color: Colors.grey,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),

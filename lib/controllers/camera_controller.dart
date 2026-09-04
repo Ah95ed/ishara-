@@ -17,9 +17,10 @@ class CameraProvider extends ChangeNotifier {
   String? _errorMessage;
   CameraImage? _latestImage;
 
-  // قفل الفريمات لمنع التداخل
+  // قفل الفريمات ومنع التراكم (Frame Throttling & Busy Drop)
   bool _isProcessingFrame = false;
   int _currentFrameSequence = 0;
+  DateTime? _lastProcessedFrameTime;
 
   // نتيجة آخر كشف
   HandLandmarks? _latestLandmarks;
@@ -131,12 +132,22 @@ class CameraProvider extends ChangeNotifier {
     _setStatus(CameraStatus.ready);
   }
 
-  /// معالجة إطار الكاميرا — نقطة الدخول الرئيسية من الـ UI
+  /// معالجة إطار الكاميرا — نقطة الدخول الرئيسية مع خفض الفريمات (10-15 FPS)
   Future<void> processFrame(CameraImage image) async {
     _currentFrameSequence++;
     final thisFrameId = _currentFrameSequence;
 
-    // قفل الفريمات — تجاهل إذا الفريم السابق لم ينته
+    // 1. خفض معدل الفريمات (Frame Throttling: 10-15 FPS)
+    final now = DateTime.now();
+    if (_lastProcessedFrameTime != null) {
+      final elapsedMs = now.difference(_lastProcessedFrameTime!).inMilliseconds;
+      if (elapsedMs < AppConstants.frameThrottleMs) {
+        _droppedFramesCount++;
+        return;
+      }
+    }
+
+    // 2. إسقاط الفريم فوراً إذا كان الاستنتاج السابق قيد التشغيل (لا طوابير)
     if (_isProcessingFrame) {
       _droppedFramesCount++;
       return;
@@ -161,13 +172,14 @@ class CameraProvider extends ChangeNotifier {
         _latestLandmarks = result;
         _isRealHand = true;
       } else {
-        // لا يد — مسح فوري
+        // No Hand ➔ Zero Recognition مسح فوري
         _clearHand();
       }
 
       sw.stop();
       _lastProcessingTimeMs = sw.elapsedMicroseconds / 1000.0;
       _processedFramesCount++;
+      _lastProcessedFrameTime = DateTime.now();
 
       // تحديث الـ UI عند تغيير الحالة أو عند وجود يد
       if (wasRealHandBefore != _isRealHand || _isRealHand) {

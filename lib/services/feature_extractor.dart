@@ -24,9 +24,12 @@ class FeatureExtractor {
     final middleMcp = lm[9];
     final handScale = _distance(wristPt, middleMcp).clamp(0.001, 10.0);
 
+    // معالجة اليد اليسرى/اليمنى بانتظام عبر عكس المحور السيني لليد اليسرى
+    final double handednessSign = handLandmarks.handedness == Handedness.left ? -1.0 : 1.0;
+
     for (int i = 0; i < 21; i++) {
       final pt = lm[i];
-      features.add((pt.x - wristPt.x) / handScale);
+      features.add(((pt.x - wristPt.x) * handednessSign) / handScale);
       features.add((pt.y - wristPt.y) / handScale);
       features.add((pt.z - wristPt.z) / handScale);
     }

@@ -118,69 +118,6 @@ class CameraPreviewWidget extends StatelessWidget {
                 ),
               ),
             ),
-
-            // 4. عرض الحرف أو الإشارة الفورية الكبيرة والمستقرة (Fast Path)
-            if (activeSignLabel != null && activeSignLabel!.isNotEmpty)
-              Positioned(
-                bottom: 24,
-                left: 20,
-                right: 20,
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.88),
-                      borderRadius: BorderRadius.circular(28),
-                      border: Border.all(
-                        color: isStable ? Colors.greenAccent : Colors.amberAccent,
-                        width: 2.2,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: (isStable ? Colors.greenAccent : Colors.amberAccent)
-                              .withValues(alpha: 0.35),
-                          blurRadius: 16,
-                          spreadRadius: 2,
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 12,
-                          height: 12,
-                          decoration: BoxDecoration(
-                            color: isStable ? Colors.greenAccent : Colors.amberAccent,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          activeSignLabel!,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 26,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.0,
-                          ),
-                        ),
-                        if (isStable) ...[
-                          const SizedBox(width: 10),
-                          const Icon(
-                            Icons.check_circle_rounded,
-                            color: Colors.greenAccent,
-                            size: 22,
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ),
           ],
         ),
       ),

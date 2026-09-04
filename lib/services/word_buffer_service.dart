@@ -1,9 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:ishara/constants/app_constants.dart';
 import 'package:ishara/models/sign_prediction_model.dart';
+import 'package:ishara/services/word_only_filter.dart';
 
-/// مخزن الكلمات المؤكدة وإدارة الجملة (Word Buffer & Sentence Manager)
-/// يمنع تكرار الكلمات المتصلة، ويتحكم في مؤقت اكتمال الجملة (Sentence Timeout)
+/// مخزن الكلمات المؤكدة وإدارة حدود الجملة (Word Buffer & Sentence Boundary Manager)
+///
+/// ينفذ المتطلبات:
+/// 10. Word Only Filter: قبول الكلمات الكاملة فقط واستبعاد أي حرف منفرد.
+/// 13. Gloss Buffer: تجميع الكلمات المستقرة داخلياً دون عرض التموجات للمستخدم.
+/// 14. Sentence Boundary: عدم تشغيل Gloss2Text إلا بعد توقف اليد، أو إشارة إنهاء، أو اختفاء اليد.
 class WordBufferService extends ChangeNotifier {
   final List<String> _words = [];
   final List<SignPrediction> _predictionSequence = [];
@@ -18,9 +24,9 @@ class WordBufferService extends ChangeNotifier {
   void Function(List<String> words, List<SignPrediction> sequence)? onSentenceReady;
 
   WordBufferService({
-    this.sentenceTimeout = const Duration(milliseconds: 1500),
-    this.minConfidence = 0.85,
-    this.debounceInterval = const Duration(milliseconds: 800),
+    this.sentenceTimeout = const Duration(milliseconds: AppConstants.sentencePauseDurationMs),
+    this.minConfidence = AppConstants.minConfidence,
+    this.debounceInterval = const Duration(milliseconds: 600),
   });
 
   List<String> get words => List.unmodifiable(_words);
@@ -34,19 +40,27 @@ class WordBufferService extends ChangeNotifier {
   bool pushPrediction(SignPrediction prediction) {
     if (prediction.confidence < minConfidence) return false;
 
-    final word = prediction.label.trim();
-    if (word.isEmpty) return false;
+    // فحص مرشح الكلمات الصارم
+    if (!WordOnlyFilter.isValidWord(prediction.label)) {
+      return false;
+    }
 
+    final word = prediction.label.trim();
     final now = DateTime.now();
 
-    // 1. منع التكرار المتصل (Duplicate Prevention): لا نكرر نفس الكلمة إذا استمرت الإشارة
+    // 1. فحص إشارة الإنهاء السريعة (Finish Gesture)
+    if (word == 'إنهاء') {
+      _triggerSentenceReadyNow();
+      return true;
+    }
+
+    // 2. منع التكرار المتصل (Duplicate Suppression)
     if (_lastEmittedWord == word) {
-      // إعادة ضبط مؤقت الجملة طالما أن المستخدم لا يزال يشير
       _resetSentenceTimeout();
       return false;
     }
 
-    // 2. فحص الفاصل الزمني (Debounce Interval)
+    // 3. فحص الفاصل الزمني (Debounce Interval)
     if (_lastEmitTime != null && now.difference(_lastEmitTime!) < debounceInterval) {
       return false;
     }
@@ -54,7 +68,7 @@ class WordBufferService extends ChangeNotifier {
     _lastEmittedWord = word;
     _lastEmitTime = now;
 
-    // إضافة الكلمة وسجل التنبؤ
+    // إضافة الكلمة وسجل التنبؤ للـ Buffer الداخلي
     _words.add(word);
     _predictionSequence.add(prediction);
 
@@ -65,7 +79,7 @@ class WordBufferService extends ChangeNotifier {
 
     notifyListeners();
 
-    // 3. تشغيل مؤقت اكتمال الجملة (Sentence Timeout)
+    // 4. ضبط مؤقت اكتمال الجملة (Sentence Boundary Timeout)
     _resetSentenceTimeout();
 
     return true;
@@ -74,10 +88,17 @@ class WordBufferService extends ChangeNotifier {
   void _resetSentenceTimeout() {
     _sentenceTimeoutTimer?.cancel();
     _sentenceTimeoutTimer = Timer(sentenceTimeout, () {
-      if (_words.isNotEmpty && onSentenceReady != null) {
-        onSentenceReady!(List.from(_words), List.from(_predictionSequence));
-      }
+      _triggerSentenceReadyNow();
     });
+  }
+
+  void _triggerSentenceReadyNow() {
+    _sentenceTimeoutTimer?.cancel();
+    if (_words.isNotEmpty && onSentenceReady != null) {
+      final currentWords = List<String>.from(_words);
+      final currentSequence = List<SignPrediction>.from(_predictionSequence);
+      onSentenceReady!(currentWords, currentSequence);
+    }
   }
 
   /// حذف آخر كلمة
@@ -104,6 +125,13 @@ class WordBufferService extends ChangeNotifier {
   /// إعادة تعيين اليد عند اختفائها من الكاميرا
   void resetCurrentHand() {
     _lastEmittedWord = null;
+    // إذا كان هناك كلمات مسجلة واختفت اليد، نسرع استدعاء نهاية الجملة
+    if (_words.isNotEmpty) {
+      _sentenceTimeoutTimer?.cancel();
+      _sentenceTimeoutTimer = Timer(const Duration(milliseconds: 700), () {
+        _triggerSentenceReadyNow();
+      });
+    }
   }
 
   @override

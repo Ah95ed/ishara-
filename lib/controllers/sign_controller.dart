@@ -3,15 +3,18 @@ import 'package:flutter/material.dart';
 import 'package:ishara/models/landmarks_model.dart';
 import 'package:ishara/models/sign_prediction_model.dart';
 import 'package:ishara/services/ml_service.dart';
+import 'package:ishara/services/motion_analyzer.dart';
 import 'package:ishara/services/speech_service.dart';
 import 'package:ishara/services/temporal_stabilizer.dart';
 import 'package:ishara/services/word_buffer_service.dart';
+import 'package:ishara/services/word_only_filter.dart';
 
 class SignProvider extends ChangeNotifier {
   final MLService _mlService;
   final SpeechService _speechService;
   final WordBufferService _wordBuffer = WordBufferService();
   final TemporalStabilizer _temporalStabilizer = TemporalStabilizer();
+  final MotionAnalyzer _motionAnalyzer = MotionAnalyzer();
 
   SignPrediction? _currentRealtimePrediction;
   SignPrediction? _lastStablePrediction;
@@ -78,7 +81,9 @@ class SignProvider extends ChangeNotifier {
   }
 
   Future<void> processLandmarks(HandLandmarks? landmarks) async {
+    // ── No Hand ➔ Zero Recognition ──
     if (landmarks == null || !landmarks.isValid) {
+      _motionAnalyzer.reset();
       _currentRealtimePrediction = null;
       _temporalStabilizer.processPrediction(null);
       _wordBuffer.resetCurrentHand();
@@ -90,11 +95,26 @@ class SignProvider extends ChangeNotifier {
     _isProcessing = true;
 
     try {
-      final prediction = await _mlService.predict(landmarks);
-      _currentRealtimePrediction = prediction;
+      // 1. تحليل الحركة (Motion Features & Energy)
+      final motion = _motionAnalyzer.analyze(landmarks);
 
-      // تمرير التنبؤ إلى الـ TemporalStabilizer لإجراء التصويت والتثبيت
-      _temporalStabilizer.processPrediction(prediction);
+      // 2. فحص بوابة الحركة (Motion Gate)
+      // إذا كانت اليد ساكنة تماماً والإشارة مستقرة بالفعل ➔ لا داعي لإعادة الاستنتاج
+      if (motion.isHandStatic && _lastStablePrediction != null) {
+        return;
+      }
+
+      // 3. تشغيل نموذج الاستنتاج مع تمرير خصائص الحركة
+      final prediction = await _mlService.predict(landmarks, motionFeatures: motion);
+
+      // 4. ترشيح الحروف المنفردة عبر WordOnlyFilter
+      if (prediction != null && WordOnlyFilter.isValidWord(prediction.label)) {
+        _currentRealtimePrediction = prediction;
+        _temporalStabilizer.processPrediction(prediction, isSignBoundary: motion.isSignBoundary);
+      } else {
+        _currentRealtimePrediction = null;
+        _temporalStabilizer.processPrediction(null, isSignBoundary: motion.isSignBoundary);
+      }
 
       notifyListeners();
     } finally {
@@ -103,8 +123,10 @@ class SignProvider extends ChangeNotifier {
   }
 
   void addWord(String word) {
+    if (!WordOnlyFilter.isValidWord(word)) return;
+
     final pred = SignPrediction(
-      label: word,
+      label: word.trim(),
       confidence: 1.0,
       timestamp: DateTime.now(),
     );
@@ -128,6 +150,7 @@ class SignProvider extends ChangeNotifier {
   void clearText() {
     _wordBuffer.clear();
     _temporalStabilizer.reset();
+    _motionAnalyzer.reset();
     _currentRealtimePrediction = null;
     _lastStablePrediction = null;
     _stabilityState = SignStabilityState.detecting;

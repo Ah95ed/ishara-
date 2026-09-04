@@ -1,14 +1,16 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:ishara/constants/app_constants.dart';
 import 'package:ishara/models/gloss_result.dart';
 import 'package:ishara/models/sign_prediction_model.dart';
 import 'package:ishara/services/gloss_model_service.dart';
 import 'package:ishara/services/temporal_stabilizer.dart';
+import 'package:ishara/services/word_only_filter.dart';
 
 /// وحدة التحكم المركزية بالـ Gloss والترجمة (Gloss Controller)
-/// تطبق المعمارية المزدوجة:
-/// 1. Fast Path: عرض الإشارة المستقرة فوراً تحت الكاميرا دون استدعاء LLM.
-/// 2. Sentence Path: تجميع الإشارات المركبة واستدعاء نموذج GGUF عند توالي عدة إشارات.
+/// تطبق المعمارية المعتمدة:
+/// 1. Gloss Buffer داخلي لتجميع الكلمات المؤكدة دون إزعاج المستخدم.
+/// 2. Sentence Boundary: ترجمة التسلسل عند توقف اليد أو إشارة الإنهاء إلى جملة عربية نهائية.
 class GlossController extends ChangeNotifier {
   final GlossModelService _glossModelService;
 
@@ -23,7 +25,7 @@ class GlossController extends ChangeNotifier {
 
   GlossController(
     this._glossModelService, {
-    this.sentencePauseDuration = const Duration(milliseconds: 1400),
+    this.sentencePauseDuration = const Duration(milliseconds: AppConstants.sentencePauseDurationMs),
   }) {
     _glossModelService.addListener(notifyListeners);
   }
@@ -43,14 +45,22 @@ class GlossController extends ChangeNotifier {
 
   /// استلام إشارة مستقرة ومؤكدة قادمة من الـ TemporalStabilizer
   void onStableSign(SignPrediction prediction) {
+    if (!WordOnlyFilter.isValidWord(prediction.label)) return;
+
     final word = prediction.label.trim();
     if (word.isEmpty) return;
 
-    // Fast Path الفوري: تحديث الإشارة اللحظية دون تشغيل LLM
     _currentSign = word;
     _stabilityState = SignStabilityState.stable;
 
-    // إضافة الكلمة إلى الـ Buffer للجملة
+    // فحص إشارة الإنهاء السريعة
+    if (word == 'إنهاء') {
+      _sentenceCompletionTimer?.cancel();
+      translateCurrentSequence();
+      return;
+    }
+
+    // إضافة الكلمة إلى الـ Gloss Buffer الداخلي (مع منع التكرار المتتالي)
     if (_glossBuffer.isEmpty || _glossBuffer.last != word) {
       _glossBuffer.add(word);
       if (_glossBuffer.length > 20) {
@@ -60,19 +70,14 @@ class GlossController extends ChangeNotifier {
 
     notifyListeners();
 
-    // ────────────────────────────────── 2. Sentence Path ──────────────────────────────────
-    // إذا كان لدينا إشارة واحدة فقط: لا نطلق الـ LLM، فالـ Fast Path كافٍ تماماً.
-    // إذا كان لدينا تسلسل من إشارتين أو أكثر: نشغّل مؤقت اكتمال الجملة
-    if (_glossBuffer.length >= 2) {
-      _scheduleSentenceTranslation();
-    }
+    // تشغيل مؤقت اكتمال الجملة (Sentence Boundary: 1.3 ثانية من السكون)
+    _scheduleSentenceTranslation();
   }
 
   /// تحديث حالة الكشف اللحظية (detecting / candidate / stable)
   void updateStabilityState(SignStabilityState state, String? candidateLabel, double confidence) {
     if (_stabilityState != state) {
       _stabilityState = state;
-      // إذا كانت الثقة منخفضة أو جارٍ الكشف، لا نلغي الكلمة القديمة فجأة، فقط نحدّث المؤشر
       notifyListeners();
     }
   }
@@ -80,15 +85,15 @@ class GlossController extends ChangeNotifier {
   void _scheduleSentenceTranslation() {
     _sentenceCompletionTimer?.cancel();
     _sentenceCompletionTimer = Timer(sentencePauseDuration, () {
-      if (_glossBuffer.length >= 2) {
+      if (_glossBuffer.isNotEmpty) {
         translateCurrentSequence();
       }
     });
   }
 
-  /// ترجمة التسلسل المخزن حالياً عبر نموذج Gemma3 GGUF
+  /// ترجمة التسلسل المخزن حالياً عبر نموذج Gemma3 GGUF أو الـ Cache
   Future<void> translateCurrentSequence() async {
-    if (_glossBuffer.length < 2) return;
+    if (_glossBuffer.isEmpty) return;
 
     final sequence = _glossBuffer.join(' ');
     final result = await _glossModelService.translateGloss(sequence);

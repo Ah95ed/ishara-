@@ -4,11 +4,32 @@ class AppConstants {
   static const String appName = 'إشارة';
   static const String appNameEn = 'Ishara';
 
-  static const int frameThrottleMs = 100;
-  static const int temporalWindowSize = 5;
-  static const int debounceMs = 1500;
-  static const double minConfidence = 0.65;
+  // ── أداء معالجة الإطارات (Frame Throttling: 10-15 FPS) ──
+  static const int frameThrottleMs = 75; // ~13 FPS لتوفير البطارية والـ CPU
+  static const double targetMinFps = 10.0;
+  static const double targetMaxFps = 15.0;
+
+  // ── بوابة الحركة وتحديد حدود الإشارة (Motion Gate & Boundary) ──
+  static const double motionGateThreshold = 0.015; // عتبة الحركة الدنيا لاعتبار اليد متحركة
+  static const double motionEnergyStartThreshold = 0.025; // بداية مقطع إشارة جديد
+  static const double motionEnergyRestThreshold = 0.012; // استقرار الإشارة / Apex
+
+  // ── النافذة الزمنية المتكيفة (Adaptive Temporal Window) ──
+  static const int minTemporalWindow = 8; // نافذة البدء للإشارات الواضحة
+  static const int maxTemporalWindow = 24; // الحد الأقصى للإشارات المعقدة أو الديناميكية
+  static const double earlyExitConfidence = 0.88; // عتبة الإنهاء المبكر (Early Exit)
+
+  // ── الثبات والتحكم بالتردد (Hysteresis & Confidence Gate) ──
+  static const double adoptConfidenceThreshold = 0.82; // عتبة مرتفعة لاعتماد كلمة جديدة
+  static const double retainConfidenceThreshold = 0.60; // عتبة مخفضة للاحتفاظ بالكلمة ومنع التذبذب
+  static const double minConfidence = 0.70; // عتبة بوابة الثقة العامة (Confidence Gate)
+  static const int debounceMs = 1200;
   static const int maxTextBufferLength = 50;
+
+  // ── حدود الجملة وترجمة LLM ──
+  static const int sentencePauseDurationMs = 1300; // مهلة توقف اليد لاعتبار الجملة مكتملة
+  static const double ggufTemperature = 0.1;
+  static const int ggufMaxTokens = 32;
 
   static const String modelAssetPath = 'assets/models/arsl_sign_model.tflite';
   static const String labelsAssetPath = 'assets/models/labels.txt';

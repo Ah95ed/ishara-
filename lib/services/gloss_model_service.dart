@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:ishara/constants/app_constants.dart';
 import 'package:ishara/models/gloss_result.dart';
 import 'package:llama_flutter_android/llama_flutter_android.dart';
 import 'package:path_provider/path_provider.dart';
@@ -19,7 +21,8 @@ enum GlossModelState {
 /// مسؤولة عن إدارة ملف النموذج، وتهيئته مرة واحدة، وتسريع GPU/Vulkan،
 /// ومنع تداخل الاستنتاج، وتخزين النتائج المؤقت (In-Memory Cache).
 class GlossModelService extends ChangeNotifier {
-  static const String _modelAssetPath = 'assets/models/Gloss2Text-V1-Gemma3-270M-Q5_K_M.gguf';
+  static const String _modelAssetPath =
+      'assets/models/Gloss2Text-V1-Gemma3-270M-Q5_K_M.gguf';
   static const String _modelFileName = 'Gloss2Text-V1-Gemma3-270M-Q5_K_M.gguf';
   static const int _expectedModelSizeBytes = 268230528; // ~268 MB
 
@@ -73,9 +76,12 @@ class GlossModelService extends ChangeNotifier {
       // 1. فحص هل النموذج مستخرج مسبقاً بنفس الحجم الفعلي
       if (await targetFile.exists()) {
         final currentLength = await targetFile.length();
-        if (currentLength == _expectedModelSizeBytes || currentLength > 260 * 1024 * 1024) {
+        if (currentLength == _expectedModelSizeBytes ||
+            currentLength > 260 * 1024 * 1024) {
           if (kDebugMode) {
-            debugPrint('[GlossModelService] Model file already exists ($currentLength bytes). Skipping copy.');
+            debugPrint(
+              '[GlossModelService] Model file already exists ($currentLength bytes). Skipping copy.',
+            );
           }
           _localModelPath = targetFile.path;
           return _localModelPath;
@@ -87,17 +93,21 @@ class GlossModelService extends ChangeNotifier {
 
       // 2. نسخ الملف من assets مرة واحدة فقط دون إبقاء 280MB في الذاكرة
       if (kDebugMode) {
-        debugPrint('[GlossModelService] Extracting model from assets to ${targetFile.path}...');
+        debugPrint(
+          '[GlossModelService] Extracting model from assets to ${targetFile.path}...',
+        );
       }
 
       final ByteData data = await rootBundle.load(_modelAssetPath);
       final sink = targetFile.openWrite();
-      
+
       // كتابة البيانات بشكل كتل لتقليل الضغط
       const chunkSize = 1024 * 1024; // 1 MB
       final totalBytes = data.lengthInBytes;
       for (int offset = 0; offset < totalBytes; offset += chunkSize) {
-        final end = (offset + chunkSize < totalBytes) ? offset + chunkSize : totalBytes;
+        final end = (offset + chunkSize < totalBytes)
+            ? offset + chunkSize
+            : totalBytes;
         final chunk = data.buffer.asUint8List(offset, end - offset);
         sink.add(chunk);
       }
@@ -106,7 +116,9 @@ class GlossModelService extends ChangeNotifier {
 
       _localModelPath = targetFile.path;
       if (kDebugMode) {
-        debugPrint('[GlossModelService] Model extraction complete: $_localModelPath');
+        debugPrint(
+          '[GlossModelService] Model extraction complete: $_localModelPath',
+        );
       }
       return _localModelPath;
     } catch (e) {
@@ -127,7 +139,9 @@ class GlossModelService extends ChangeNotifier {
 
     if (!Platform.isAndroid) {
       if (kDebugMode) {
-        debugPrint('[GlossModelService] Native inference only supported on Android. Simulation mode enabled.');
+        debugPrint(
+          '[GlossModelService] Native inference only supported on Android. Simulation mode enabled.',
+        );
       }
       _setState(GlossModelState.ready);
       return true;
@@ -149,12 +163,18 @@ class GlossModelService extends ChangeNotifier {
           debugPrint('[GlossModelService] GPU Detection:');
           debugPrint('  - GPU: ${gpuInfo.gpuName}');
           debugPrint('  - Vulkan Supported: ${gpuInfo.vulkanSupported}');
-          debugPrint('  - Free RAM: ${gpuInfo.freeRamBytes ~/ 1024 ~/ 1024} MB');
-          debugPrint('  - Recommended GPU Layers: ${gpuInfo.recommendedGpuLayers}');
+          debugPrint(
+            '  - Free RAM: ${gpuInfo.freeRamBytes ~/ 1024 ~/ 1024} MB',
+          );
+          debugPrint(
+            '  - Recommended GPU Layers: ${gpuInfo.recommendedGpuLayers}',
+          );
         }
       } catch (gpuError) {
         if (kDebugMode) {
-          debugPrint('[GlossModelService] GPU detection failed, falling back to CPU (0 layers): $gpuError');
+          debugPrint(
+            '[GlossModelService] GPU detection failed, falling back to CPU (0 layers): $gpuError',
+          );
         }
         _vulkanSupported = false;
         _recommendedGpuLayers = 0;
@@ -172,7 +192,9 @@ class GlossModelService extends ChangeNotifier {
       _modelLoadTimeMs = stopwatch.elapsedMilliseconds;
 
       if (kDebugMode) {
-        debugPrint('[GlossModelService] Model loaded successfully in ${_modelLoadTimeMs}ms');
+        debugPrint(
+          '[GlossModelService] Model loaded successfully in ${_modelLoadTimeMs}ms',
+        );
       }
 
       _setState(GlossModelState.ready);
@@ -198,7 +220,9 @@ class GlossModelService extends ChangeNotifier {
     if (_cache.containsKey(cacheKey)) {
       final cachedResult = _cache[cacheKey]!;
       if (kDebugMode) {
-        debugPrint('[GlossModelService] Cache HIT for: "$cleanGloss" -> "${cachedResult.arabicText}"');
+        debugPrint(
+          '[GlossModelService] Cache HIT for: "$cleanGloss" -> "${cachedResult.arabicText}"',
+        );
       }
       return GlossResult(
         gloss: cleanGloss,
@@ -220,7 +244,9 @@ class GlossModelService extends ChangeNotifier {
     // 3. منع تداخل الاستنتاج (Inference Overlap Prevention)
     if (_state == GlossModelState.generating) {
       if (kDebugMode) {
-        debugPrint('[GlossModelService] Already generating. Overriding pending gloss with: "$cleanGloss"');
+        debugPrint(
+          '[GlossModelService] Already generating. Overriding pending gloss with: "$cleanGloss"',
+        );
       }
       // إيقاف التوليد القديم الذي أصبح غير صالح
       await stopGeneration();
@@ -233,7 +259,8 @@ class GlossModelService extends ChangeNotifier {
     _currentCompleter = completer;
 
     // تجهيز الـ Prompt القصير المطابق لطريقة تدريب النموذج
-    final prompt = 'Translate ArSL gloss to an MSA sentence.\nGloss: $cleanGloss\nOutput:';
+    final prompt =
+        'Translate ArSL gloss to an MSA sentence.\nGloss: $cleanGloss\nOutput:';
 
     final buffer = StringBuffer();
     final stopwatch = Stopwatch()..start();
@@ -246,8 +273,9 @@ class GlossModelService extends ChangeNotifier {
         _generationSubscription = _llamaController!
             .generate(
               prompt: prompt,
-              maxTokens: 48,
-              temperature: 0.1, // درجة حرارة منخفضة لترجمة ثابتة ومستقرة
+              maxTokens: AppConstants.ggufMaxTokens,
+              temperature: AppConstants
+                  .ggufTemperature, // درجة حرارة منخفضة لترجمة دقيقة ومستقرة
               topP: 0.9,
               repeatPenalty: 1.15,
             )
@@ -262,7 +290,9 @@ class GlossModelService extends ChangeNotifier {
               onDone: () {
                 stopwatch.stop();
                 final totalTimeMs = stopwatch.elapsedMilliseconds;
-                final tps = totalTimeMs > 0 ? (tokenCount * 1000.0) / totalTimeMs : 0.0;
+                final tps = totalTimeMs > 0
+                    ? (tokenCount * 1000.0) / totalTimeMs
+                    : 0.0;
 
                 _lastFirstTokenMs = firstTokenLatencyMs;
                 _lastTotalDurationMs = totalTimeMs;
@@ -285,7 +315,9 @@ class GlossModelService extends ChangeNotifier {
                 _cache[cacheKey] = result;
 
                 if (kDebugMode) {
-                  debugPrint('[GlossModelService] Generation complete: "$cleanOutput" (${totalTimeMs}ms, ${tps.toStringAsFixed(1)} t/s)');
+                  debugPrint(
+                    '[GlossModelService] Generation complete: "$cleanOutput" (${totalTimeMs}ms, ${tps.toStringAsFixed(1)} t/s)',
+                  );
                 }
 
                 _setState(GlossModelState.ready);
@@ -369,7 +401,9 @@ class GlossModelService extends ChangeNotifier {
 
   /// محاكاة محلية ذكية خارج بيئة Android
   String _simulateTranslation(String gloss) {
-    if (gloss.contains('أنا') && gloss.contains('ذهاب') && gloss.contains('سوق')) {
+    if (gloss.contains('أنا') &&
+        gloss.contains('ذهاب') &&
+        gloss.contains('سوق')) {
       return 'أنا ذاهب إلى السوق.';
     }
     if (gloss.contains('أنا') && gloss.contains('ماء')) {
@@ -377,6 +411,27 @@ class GlossModelService extends ChangeNotifier {
     }
     if (gloss.contains('أنت') && gloss.contains('مساعدة')) {
       return 'هل يمكنك مساعدتي؟';
+    }
+    if (gloss.contains('أنا') && gloss.contains('أحبك')) {
+      return 'أنا أحبك كثيراً.';
+    }
+    if (gloss.contains('أحبك')) {
+      return 'أحبك.';
+    }
+    if (gloss.contains('طعام')) {
+      return 'أريد تناول الطعام.';
+    }
+    if (gloss.contains('السلام')) {
+      return 'السلام عليكم ورحمة الله وبركاته.';
+    }
+    if (gloss.contains('شكراً')) {
+      return 'شكراً جزيلاً لك.';
+    }
+    if (gloss.contains('ماء')) {
+      return 'أريد شرب الماء.';
+    }
+    if (gloss.contains('مساعدة')) {
+      return 'أحتاج إلى المساعدة من فضلك.';
     }
     return '$gloss.';
   }

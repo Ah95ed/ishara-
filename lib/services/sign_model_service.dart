@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:ishara/constants/app_constants.dart';
 import 'package:ishara/models/landmarks_model.dart';
 import 'package:ishara/models/sign_prediction_model.dart';
+import 'package:ishara/services/motion_analyzer.dart';
+import 'package:ishara/services/word_only_filter.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 
 /// محرك الاستنتاج المتكامل لتمييز إشارات لغة الإشارة العربية
@@ -74,26 +76,25 @@ class SignModelService {
     _isModelLoaded = true;
   }
 
-  /// التنبؤ بالإشارة من معالم اليد الـ 21
-  Future<SignPrediction?> predict(HandLandmarks landmarks) async {
+  /// التنبؤ بالإشارة من معالم اليد الـ 21 مع الاستفادة من خصائص الحركة (Motion Features)
+  Future<SignPrediction?> predict(HandLandmarks landmarks, {MotionFeatures? motionFeatures}) async {
     if (!_isModelLoaded || !landmarks.isValid || landmarks.landmarks.length < 21) {
       return null;
     }
 
-    // 1. تشغيل المصنف الهندسي المستقل عن اتجاه دوران الكاميرا
-    final geometricResult = _classifyGeometric(landmarks);
+    // 1. تشغيل المصنف الهندسي والحركي المستقل عن الدوران
+    final geometricResult = _classifyGeometric(landmarks, motionFeatures: motionFeatures);
 
     // 2. محاولة تشغيل نموذج TFLite إذا كان متاحاً
+    SignPrediction? finalResult = geometricResult;
     if (_interpreter != null) {
       try {
         final tfliteResult = _predictTflite(landmarks);
-        if (tfliteResult != null) {
-          // إذا تطابق النموذجان أو كانت ثقة TFLite عالية جداً
+        if (tfliteResult != null && WordOnlyFilter.isValidWord(tfliteResult.label)) {
           if (geometricResult != null && geometricResult.label == tfliteResult.label) {
-            return tfliteResult.copyWith(confidence: max(tfliteResult.confidence, 0.95));
-          }
-          if (tfliteResult.confidence >= 0.80) {
-            return tfliteResult;
+            finalResult = tfliteResult.copyWith(confidence: max(tfliteResult.confidence, 0.95));
+          } else if (tfliteResult.confidence >= 0.85) {
+            finalResult = tfliteResult;
           }
         }
       } catch (e) {
@@ -101,12 +102,16 @@ class SignModelService {
       }
     }
 
-    // الاعتماد على المصنف الهندسي المستقر
-    return geometricResult;
+    // ── المتطلب 10 (Word Only Filter): استبعاد أي حرف منفرد قطعياً ──
+    if (finalResult != null && WordOnlyFilter.isValidWord(finalResult.label)) {
+      return finalResult;
+    }
+
+    return null;
   }
 
-  /// تصنيف هندسي دوراني ذكي يعتمد على بنية مفاصل اليد (Rotation-Invariant)
-  SignPrediction? _classifyGeometric(HandLandmarks landmarks) {
+  /// تصنيف هندسي وحركي ذكي يعتمد على بنية مفاصل اليد والحركة (Rotation-Invariant & Motion-Aware)
+  SignPrediction? _classifyGeometric(HandLandmarks landmarks, {MotionFeatures? motionFeatures}) {
     final pts = landmarks.landmarks;
 
     final p0 = pts[0]; // المعصم Wrist
@@ -134,85 +139,94 @@ class SignModelService {
 
     // فحص الإبهام (ممتد للخارج أم مضموم)
     final bool thumbExtended = _dist(p4, p9) > palmScale * 0.70;
-    // تقارب الإبهام والسبابة (علامة القرص Pinch / حرف ف)
-    final bool thumbIndexPinch = _dist(p4, p8) < palmScale * 0.35;
+
     // تقارب كل الأصابع معاً في نقطة واحدة (طعام)
     final bool allTipsTouching = _dist(p4, p8) < palmScale * 0.40 &&
         _dist(p4, p12) < palmScale * 0.45 &&
         _dist(p4, p16) < palmScale * 0.45 &&
         _dist(p4, p20) < palmScale * 0.50;
 
-    // مسافات بينية بين رؤوس الأصابع
-    final double indexMiddleGap = _dist(p8, p12) / palmScale;
+    // علامة أحبك (ILY Sign: الإبهام والسبابة والخنصر ممتدة، والوسطى والبنصر مطوية)
+    final bool ilySign = thumbExtended && indexExtended && !middleExtended && !ringExtended && pinkyExtended;
+
+    // اتجاه حركة اليد وسرعتها من MotionFeatures
+    final double vel = motionFeatures?.averageVelocity ?? 0.0;
+    final double dirY = motionFeatures?.directionY ?? 0.0;
+    final double dirZ = motionFeatures?.directionZ ?? 0.0;
 
     String label = '';
     double confidence = 0.88;
 
-    // ────────────────────────────────── قواعد التعرف على الإشارات والكلمات ──────────────────────────────────
+    // ────────────────────────────────── قواعد التعرف على الكلمات الكاملة (Glosses) ──────────────────────────────────
 
-    // 1. طعام (جميع أطراف الأصابع مجتمعة)
+    // 1. طعام (جميع أطراف الأصابع مجتمعة في نقطة واحدة)
     if (allTipsTouching) {
       label = 'طعام';
       confidence = 0.94;
     }
-    // 2. مساعدة / Thumbs Up (الإبهام ممتد وجميع الأصابع الـ 4 مطوية بقبضة)
+    // 2. أحبك (إشارة ILY العالمية للغة الإشارة: إبهام + سبابة + خنصر)
+    else if (ilySign) {
+      label = 'أحبك';
+      confidence = 0.96;
+    }
+    // 3. مساعدة / Thumbs Up (الإبهام ممتد للأعلى وباقي الأصابع مطوية بقبضة)
     else if (thumbExtended && !indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
       label = 'مساعدة';
-      confidence = 0.92;
-    }
-    // 3. ل (L-shape: الإبهام ممتد بزاوية قائمة + السبابة ممتدة + باقي الأصابع مطوية)
-    else if (thumbExtended && indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
-      label = 'ل';
-      confidence = 0.95;
-    }
-    // 4. أ / Alef (السبابة ممتدة فقط وباقي الأصابع مطوية)
-    else if (indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
-      label = 'أ';
       confidence = 0.93;
     }
-    // 5. ي / Ya2 (الخنصر ممتد فقط وباقي الأصابع مطوية)
-    else if (pinkyExtended && !indexExtended && !middleExtended && !ringExtended) {
-      label = 'ي';
-      confidence = 0.95;
-    }
-    // 6. ف / Fa2 (قرص بين الإبهام والسبابة + الأصابع الثلاثة ممتدة للأعلى كعلامة OK)
-    else if (thumbIndexPinch && middleExtended && ringExtended && pinkyExtended) {
-      label = 'ف';
-      confidence = 0.92;
-    }
-    // 7. ع / 3ayn (السبابة والوسطى ممتدتان ومتباعدتان على شكل V)
-    else if (indexExtended && middleExtended && !ringExtended && !pinkyExtended && indexMiddleGap > 0.35) {
-      label = 'ع';
-      confidence = 0.92;
-    }
-    // 8. ت / Ta2 (السبابة والوسطى ممتدتان ومتلاصقتان للأعلى)
-    else if (indexExtended && middleExtended && !ringExtended && !pinkyExtended && indexMiddleGap <= 0.35) {
-      label = 'ت';
-      confidence = 0.90;
-    }
-    // 9. ماء / ث (ثلاثة أصابع ممتدة: السبابة + الوسطى + البنصر مع طي الخنصر)
+    // 4. ماء (ثلاثة أصابع ممتدة: السبابة + الوسطى + البنصر مع طي الخنصر)
     else if (indexExtended && middleExtended && ringExtended && !pinkyExtended) {
-      // إشارة W الشهيرة للماء في لغة الإشارة
       label = 'ماء';
       confidence = 0.94;
     }
-    // 10. ب / Ba2 (الأصابع الأربعة ممتدة معاً للأعلى والإبهام مطوي فوق الكف)
-    else if (indexExtended && middleExtended && ringExtended && pinkyExtended && !thumbExtended) {
-      label = 'ب';
-      confidence = 0.91;
-    }
-    // 11. السلام / كف مفتوح بالكامل (جميع الأصابع الـ 5 ممتدة ومفتوحة)
+    // 5. السلام (كف مفتوح بالكامل وجميع الأصابع الـ 5 ممتدة)
     else if (indexExtended && middleExtended && ringExtended && pinkyExtended && thumbExtended) {
       label = 'السلام';
       confidence = 0.96;
     }
-    // 12. م / Mim (قبضة يد مغلقة بالكامل Fist)
+    // 6. أنا (السبابة ممتدة وموجهة نحو الجسم / المعصم أعلى من الإصبع أو حركة داخلية)
+    else if (indexExtended && !middleExtended && !ringExtended && !pinkyExtended && (p8.y > p6.y || dirZ < -0.15)) {
+      label = 'أنا';
+      confidence = 0.92;
+    }
+    // 7. أنت (السبابة ممتدة للأمام نحو الكاميرا)
+    else if (indexExtended && !middleExtended && !ringExtended && !pinkyExtended && p8.y <= p6.y) {
+      // فحص هل هناك حركة أفقية لتمييز "لا"
+      if (vel > 0.05 && (motionFeatures?.directionX.abs() ?? 0.0) > 0.6) {
+        label = 'لا';
+        confidence = 0.90;
+      } else {
+        label = 'أنت';
+        confidence = 0.91;
+      }
+    }
+    // 8. شكراً (الأصابع الأربعة ممتدة ومضمومة معاً ككف مستوٍ)
+    else if (indexExtended && middleExtended && ringExtended && pinkyExtended && !thumbExtended) {
+      label = 'شكراً';
+      confidence = 0.91;
+    }
+    // 9. نعم (قبضة اليد تتحرك بحركة إيماء للأسفل)
     else if (!indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
-      label = 'م';
-      confidence = 0.90;
+      if (vel > 0.03 && dirY > 0.3) {
+        label = 'نعم';
+        confidence = 0.92;
+      } else {
+        // قبضة يد ساكنة دون حركة لا نعتبرها حرف م
+        return null;
+      }
+    }
+    // 10. ذهاب (السبابة والوسطى ممتدتان مع حركة للأمام)
+    else if (indexExtended && middleExtended && !ringExtended && !pinkyExtended && vel > 0.04) {
+      label = 'ذهاب';
+      confidence = 0.89;
+    }
+    // 11. سوق (تقارب السبابة والإبهام مع حركة متكررة)
+    else if (_dist(p4, p8) < palmScale * 0.40 && middleExtended && ringExtended) {
+      label = 'سوق';
+      confidence = 0.88;
     }
 
-    if (label.isEmpty) {
+    if (label.isEmpty || !WordOnlyFilter.isValidWord(label)) {
       return null;
     }
 
@@ -224,7 +238,7 @@ class SignModelService {
     );
   }
 
-  /// استنتاج نموذج TFLite الرسمي
+  /// استنتاج نموذج TFLite الرسمي مع فحص صارم للكلمات
   SignPrediction? _predictTflite(HandLandmarks landmarks) {
     if (_interpreter == null) return null;
 
@@ -253,6 +267,11 @@ class SignModelService {
 
     final rawLabel = _labels[maxIdx];
     final arabicLabel = arabicLabelMap[rawLabel] ?? rawLabel;
+
+    // استبعاد أي حرف منفرد يأتي من نموذج TFLite
+    if (!WordOnlyFilter.isValidWord(arabicLabel)) {
+      return null;
+    }
 
     return SignPrediction(
       label: arabicLabel,
