@@ -5,16 +5,14 @@ import 'package:ishara/services/word_only_filter.dart';
 
 enum SignStabilityState { detecting, candidate, stable }
 
-/// مثبت الثبات الزمني المتقدم (Adaptive Temporal Stabilizer)
+/// مثبت الثبات الزمني المتكيف (Adaptive Temporal Stabilizer)
 ///
 /// ينفذ المتطلبات:
-/// 2. Adaptive Temporal Window: نافذة متكيفة من 8 إلى 24 إطاراً مع Early Exit.
-/// 5. Temporal Majority Voting: تصويت الأغلبية المرجح بالثقة داخل النافذة.
-/// 6. Hysteresis: عتبة اعتماد جديدة (0.82) أعلى من عتبة الاحتفاظ (0.60).
-/// 7. CTC-like Collapse: حالة BLANK مدمجة لتقليص التكرارات.
-/// 9. Duplicate Suppression: منع تكرار نفس الكلمة طالما الإشارة مستمرة دون BLANK.
-/// 11. Confidence Gate: عدم التخمين وإبقاء الحالة Detecting/Unknown إذا كانت الثقة غير كافية.
-/// 12. Early Exit: إنهاء التحليل مبكراً عند ثبات الكلمة بوضوح.
+/// 1. Adaptive Confidence: قبول ثقة أقل عند استقرار اليد وثقة أعلى عند التذبذب.
+/// 2. Early Commit: اعتماد الكلمة فوراً عند ثباتها لعدة إطارات متتالية دون انتظار طويل.
+/// 3. Temporal Majority Voting & Confidence Averaging داخل نافذة متكيفة (4 - 8 إطارات).
+/// 4. Hysteresis: منع التبدل السريع بين الكلمات.
+/// 5. Duplicate Suppression: منع تكرار نفس الكلمة المتتالية ما لم تتغير الإشارة أو تختفي اليد.
 class TemporalStabilizer {
   static const String blankLabel = 'BLANK';
 
@@ -22,6 +20,7 @@ class TemporalStabilizer {
   final int maxWindowSize;
   final double earlyExitConfidence;
   final double adoptConfidenceThreshold;
+  final double adoptConfidenceThresholdStatic;
   final double retainConfidenceThreshold;
   final double minConfidenceThreshold;
   final Duration handResetTimeout;
@@ -35,6 +34,7 @@ class TemporalStabilizer {
   // طابور النافذة المتكيفة
   final Queue<SignPrediction?> _windowQueue = Queue<SignPrediction?>();
   int _currentAdaptiveWindowSize;
+  int _consecutiveNullFrames = 0;
 
   // مؤشر مرور حالة الفراغ (BLANK) للسماح بتكرار نفس الكلمة لاحقاً
   bool _seenBlankSinceLastEmission = true;
@@ -48,9 +48,10 @@ class TemporalStabilizer {
     this.maxWindowSize = AppConstants.maxTemporalWindow,
     this.earlyExitConfidence = AppConstants.earlyExitConfidence,
     this.adoptConfidenceThreshold = AppConstants.adoptConfidenceThreshold,
+    this.adoptConfidenceThresholdStatic = AppConstants.adoptConfidenceThresholdStatic,
     this.retainConfidenceThreshold = AppConstants.retainConfidenceThreshold,
     this.minConfidenceThreshold = AppConstants.minConfidence,
-    this.handResetTimeout = const Duration(milliseconds: 1200),
+    this.handResetTimeout = const Duration(milliseconds: 800),
   }) : _currentAdaptiveWindowSize = AppConstants.minTemporalWindow;
 
   SignStabilityState get state => _state;
@@ -59,16 +60,20 @@ class TemporalStabilizer {
   double get lastConfidence => _lastConfidence;
   int get currentWindowSize => _currentAdaptiveWindowSize;
 
-  /// معالجة تنبؤ إطار قادم من نموذج لغة الإشارة
-  void processPrediction(SignPrediction? prediction, {bool isSignBoundary = false}) {
+  /// معالجة تنبؤ إطار قادم من محرك التعرف مع الأخذ بالحسبان استقرار الحركة وحدود الإشارة
+  void processPrediction(
+    SignPrediction? prediction, {
+    bool isHandStatic = false,
+    bool isSignBoundary = false,
+  }) {
     final now = DateTime.now();
 
-    // 1. فحص مهلة انقطاع اليد (Reset Timeout)
+    // 1. فحص انقطاع اليد أو انقضاء المهلة
     if (_lastDetectionTime != null && now.difference(_lastDetectionTime!) > handResetTimeout) {
       _handleBlankState();
     }
 
-    // 2. التحقق عبر بوابة الثقة (Confidence Gate) ومرشح الكلمات فقط (WordOnlyFilter)
+    // 2. تصفية التنبؤ: التحقق من بوابة الثقة واستبعاد الأحرف المنفردة عبر WordOnlyFilter
     SignPrediction? effectivePrediction;
     if (prediction != null &&
         prediction.confidence >= retainConfidenceThreshold &&
@@ -76,21 +81,52 @@ class TemporalStabilizer {
       effectivePrediction = prediction;
       _lastDetectionTime = now;
       _lastConfidence = prediction.confidence;
+      _consecutiveNullFrames = 0;
     } else {
-      // إشارة غير واضحة أو ثقة منخفضة أو حرف منفرد ➔ معاملتها كـ BLANK
       effectivePrediction = null;
+      _consecutiveNullFrames++;
     }
 
-    // 3. إضافة الإطار إلى النافذة الزمنية المتكيفة
+    // إضافة الإطار للنافذة الزمنية
     _windowQueue.addLast(effectivePrediction);
     while (_windowQueue.length > _currentAdaptiveWindowSize) {
       _windowQueue.removeFirst();
     }
 
-    // إذا كان الإطار فارغاً، تسجيل حالة BLANK
-    if (effectivePrediction == null) {
+    // إذا توالت الإطارات الفارغة لـ 3 مرات أو أكثر ➔ حالة فراغ
+    if (_consecutiveNullFrames >= 3) {
       _handleBlankState();
       return;
+    }
+
+    // إذا كان الإطار الحالي فقط فارغاً بصورة عابرة، لا نلغي الأصوات المتراكمة
+    if (effectivePrediction == null) {
+      return;
+    }
+
+    // 3. Early Commit (الاعتماد المبكر السريع):
+    // إذا ظهرت نفس الكلمة في آخر 3 إطارات متتالية بثقة مقبولة، أو آخر إطارين مع Sign Boundary
+    final recentPredictions = _windowQueue.whereType<SignPrediction>().toList();
+    if (recentPredictions.length >= 3) {
+      final last3 = recentPredictions.sublist(recentPredictions.length - 3);
+      final word0 = last3[0].label.trim();
+      final allSame = last3.every((p) => p.label.trim() == word0);
+      final avgConf3 = (last3[0].confidence + last3[1].confidence + last3[2].confidence) / 3.0;
+
+      if (allSame && (avgConf3 >= earlyExitConfidence || (isHandStatic && avgConf3 >= adoptConfidenceThresholdStatic))) {
+        _commitStableSign(last3.last, avgConf3);
+        return;
+      }
+    } else if (isSignBoundary && recentPredictions.length >= 2) {
+      final last2 = recentPredictions.sublist(recentPredictions.length - 2);
+      final word0 = last2[0].label.trim();
+      if (last2[1].label.trim() == word0) {
+        final avgConf2 = (last2[0].confidence + last2[1].confidence) / 2.0;
+        if (avgConf2 >= adoptConfidenceThresholdStatic) {
+          _commitStableSign(last2.last, avgConf2);
+          return;
+        }
+      }
     }
 
     // 4. التصويت الأغلبي الزمني (Temporal Majority Voting)
@@ -112,7 +148,7 @@ class TemporalStabilizer {
       return;
     }
 
-    // العثور على المرشح صاحب أعلى الأصوات
+    // العثور على الكلمة صاحبة أعلى الأصوات
     String bestLabel = '';
     int maxVotes = 0;
     double avgConfidence = 0.0;
@@ -125,32 +161,12 @@ class TemporalStabilizer {
       }
     }
 
-    final double consensusRatio = maxVotes / _windowQueue.length;
-
-    // 5. التحقق من الإنهاء المبكر (Early Exit)
-    // إذا كانت الكلمة واضحة جداً وبثقة عالية وثبات ممتاز في عدد قليل من الإطارات
-    final bool isEarlyExitEligible = _windowQueue.length >= minWindowSize &&
-        maxVotes >= 4 &&
-        avgConfidence >= earlyExitConfidence &&
-        consensusRatio >= 0.70;
-
-    // إذا كانت هناك رغبة في التوسع (حركة معقدة أو نتائج متقاربة)
-    if (!isEarlyExitEligible && !isSignBoundary) {
-      if (_currentAdaptiveWindowSize < maxWindowSize) {
-        _currentAdaptiveWindowSize++;
-      }
-    } else if (isEarlyExitEligible) {
-      // إعادة تقليص النافذة عند الإشارات السهلة
-      _currentAdaptiveWindowSize = minWindowSize;
-    }
-
-    // 6. التحكم بالتردد (Hysteresis):
-    // اعتماد كلمة جديدة يتطلب عتبة مرتفعة (adoptConfidenceThreshold)
-    // بينما الاحتفاظ بالكلمة الحالية يتطلب فقط (retainConfidenceThreshold)
-    final bool isSameAsCurrentCandidate = bestLabel == _candidateLabel;
-    final double requiredThreshold = isSameAsCurrentCandidate
+    // 5. نظام الثقة المتكيفة (Adaptive Confidence Threshold):
+    // إذا كانت اليد مستقرة (isHandStatic) نقبل ثقة أقل، وإذا كانت متذبذبة نطلب ثقة أعلى
+    final bool isSameAsCandidate = bestLabel == _candidateLabel;
+    final double requiredThreshold = isSameAsCandidate
         ? retainConfidenceThreshold
-        : adoptConfidenceThreshold;
+        : (isHandStatic ? adoptConfidenceThresholdStatic : adoptConfidenceThreshold);
 
     if (avgConfidence < requiredThreshold) {
       if (_state != SignStabilityState.detecting) {
@@ -164,35 +180,12 @@ class TemporalStabilizer {
     _candidateLabel = bestLabel;
     _lastConfidence = avgConfidence;
 
-    // 7. التحقق من الوصول لحالة الاستقرار (Stable State)
-    final bool hasReachedConsensus = (maxVotes >= 3 && consensusRatio >= 0.50) ||
-        isEarlyExitEligible ||
-        (isSignBoundary && maxVotes >= 2);
+    // 6. التحقق من ثبات الكلمة
+    final bool hasConsensus = maxVotes >= 2 &&
+        (avgConfidence >= requiredThreshold || isSignBoundary || isHandStatic);
 
-    if (hasReachedConsensus) {
-      if (_state != SignStabilityState.stable) {
-        _state = SignStabilityState.stable;
-        _notifyState();
-      }
-
-      // 8. منع التكرار (Duplicate Suppression) وتقليص CTC
-      // لا نسمح بإضافة نفس الكلمة إلا إذا مرت حالة BLANK أو تغيرت الإشارة
-      if (_lastEmittedStableLabel != bestLabel || _seenBlankSinceLastEmission) {
-        _lastEmittedStableLabel = bestLabel;
-        _seenBlankSinceLastEmission = false;
-
-        final stablePred = labelPredictions[bestLabel]!.copyWith(
-          confidence: avgConfidence,
-        );
-
-        if (onStableSign != null) {
-          onStableSign!(stablePred);
-        }
-
-        // تفريغ النافذة بعد اعتماد الكلمة للبدء في الإشارة التالية
-        _windowQueue.clear();
-        _currentAdaptiveWindowSize = minWindowSize;
-      }
+    if (hasConsensus) {
+      _commitStableSign(labelPredictions[bestLabel]!, avgConfidence);
     } else {
       if (_state != SignStabilityState.candidate) {
         _state = SignStabilityState.candidate;
@@ -201,9 +194,39 @@ class TemporalStabilizer {
     }
   }
 
+  /// اعتماد كلمة مستقرة مع منع التكرار المباشر لنفس الإشارة
+  void _commitStableSign(SignPrediction prediction, double confidence) {
+    final word = prediction.label.trim();
+
+    if (_state != SignStabilityState.stable) {
+      _state = SignStabilityState.stable;
+      _candidateLabel = word;
+      _lastConfidence = confidence;
+      _notifyState();
+    }
+
+    // منع التكرار (Duplicate Suppression):
+    // لا نسمح بإضافة نفس الكلمة إلا إذا مرت حالة فراغ (اختفاء يد / توقف) أو تغيرت الإشارة
+    if (_lastEmittedStableLabel != word || _seenBlankSinceLastEmission) {
+      _lastEmittedStableLabel = word;
+      _seenBlankSinceLastEmission = false;
+
+      final stablePred = prediction.copyWith(confidence: confidence);
+
+      if (onStableSign != null) {
+        onStableSign!(stablePred);
+      }
+
+      // تفريغ جزئي للنافذة لبدء الإشارة التالية بسلاسة
+      _windowQueue.clear();
+      _currentAdaptiveWindowSize = minWindowSize;
+    }
+  }
+
   void _handleBlankState() {
     _seenBlankSinceLastEmission = true;
     _candidateLabel = null;
+    _consecutiveNullFrames = 0;
     if (_state != SignStabilityState.detecting) {
       _state = SignStabilityState.detecting;
       _notifyState();
@@ -216,6 +239,11 @@ class TemporalStabilizer {
     }
   }
 
+  /// إتاحة اعتماد الكلمة نفسها مرة أخرى عند بدء حركة جديدة
+  void allowNextSignAfterMotion() {
+    _seenBlankSinceLastEmission = true;
+  }
+
   /// مسح الذاكرة الحالية بالكامل
   void reset() {
     _windowQueue.clear();
@@ -223,6 +251,7 @@ class TemporalStabilizer {
     _candidateLabel = null;
     _lastEmittedStableLabel = null;
     _seenBlankSinceLastEmission = true;
+    _consecutiveNullFrames = 0;
     _state = SignStabilityState.detecting;
     _lastDetectionTime = null;
   }

@@ -15,14 +15,15 @@ class AppConstants {
   static const double motionEnergyRestThreshold = 0.012; // استقرار الإشارة / Apex
 
   // ── النافذة الزمنية المتكيفة (Adaptive Temporal Window) ──
-  static const int minTemporalWindow = 8; // نافذة البدء للإشارات الواضحة
-  static const int maxTemporalWindow = 24; // الحد الأقصى للإشارات المعقدة أو الديناميكية
-  static const double earlyExitConfidence = 0.88; // عتبة الإنهاء المبكر (Early Exit)
+  static const int minTemporalWindow = 4; // نافذة سريعة للإشارات الواضحة
+  static const int maxTemporalWindow = 8; // نافذة الإشارات الديناميكية
+  static const double earlyExitConfidence = 0.72; // عتبة الاعتماد المبكر (Early Commit)
 
-  // ── الثبات والتحكم بالتردد (Hysteresis & Confidence Gate) ──
-  static const double adoptConfidenceThreshold = 0.82; // عتبة مرتفعة لاعتماد كلمة جديدة
-  static const double retainConfidenceThreshold = 0.60; // عتبة مخفضة للاحتفاظ بالكلمة ومنع التذبذب
-  static const double minConfidence = 0.70; // عتبة بوابة الثقة العامة (Confidence Gate)
+  // ── الثبات والتحكم بالتردد (Adaptive Hysteresis & Confidence Gate) ──
+  static const double adoptConfidenceThreshold = 0.70; // عتبة معتدلة لاعتماد كلمة جديدة أثناء الحركة
+  static const double adoptConfidenceThresholdStatic = 0.62; // عتبة مخفضة مقبولة عند استقرار وثبات اليد
+  static const double retainConfidenceThreshold = 0.50; // عتبة مخفضة للاحتفاظ بالكلمة ومنع التذبذب
+  static const double minConfidence = 0.55; // عتبة بوابة الثقة العامة (Confidence Gate)
   static const int debounceMs = 1200;
   static const int maxTextBufferLength = 50;
 

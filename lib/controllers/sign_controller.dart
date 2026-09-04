@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:ishara/constants/app_constants.dart';
 import 'package:ishara/models/landmarks_model.dart';
 import 'package:ishara/models/sign_prediction_model.dart';
 import 'package:ishara/services/ml_service.dart';
@@ -98,22 +99,29 @@ class SignProvider extends ChangeNotifier {
       // 1. تحليل الحركة (Motion Features & Energy)
       final motion = _motionAnalyzer.analyze(landmarks);
 
-      // 2. فحص بوابة الحركة (Motion Gate)
-      // إذا كانت اليد ساكنة تماماً والإشارة مستقرة بالفعل ➔ لا داعي لإعادة الاستنتاج
-      if (motion.isHandStatic && _lastStablePrediction != null) {
-        return;
+      // إذا بدأت حركة إشارة جديدة واضحة، نتيح لـ TemporalStabilizer السماح بالإشارة التالية
+      if (motion.motionEnergy > AppConstants.motionEnergyStartThreshold || motion.averageVelocity > 0.04) {
+        _temporalStabilizer.allowNextSignAfterMotion();
       }
 
-      // 3. تشغيل نموذج الاستنتاج مع تمرير خصائص الحركة
+      // 2. تشغيل نموذج الاستنتاج مع تمرير خصائص الحركة
       final prediction = await _mlService.predict(landmarks, motionFeatures: motion);
 
-      // 4. ترشيح الحروف المنفردة عبر WordOnlyFilter
+      // 3. ترشيح الحروف المنفردة عبر WordOnlyFilter والتثبيت الزمني المتكيف
       if (prediction != null && WordOnlyFilter.isValidWord(prediction.label)) {
         _currentRealtimePrediction = prediction;
-        _temporalStabilizer.processPrediction(prediction, isSignBoundary: motion.isSignBoundary);
+        _temporalStabilizer.processPrediction(
+          prediction,
+          isHandStatic: motion.isHandStatic,
+          isSignBoundary: motion.isSignBoundary,
+        );
       } else {
         _currentRealtimePrediction = null;
-        _temporalStabilizer.processPrediction(null, isSignBoundary: motion.isSignBoundary);
+        _temporalStabilizer.processPrediction(
+          null,
+          isHandStatic: motion.isHandStatic,
+          isSignBoundary: motion.isSignBoundary,
+        );
       }
 
       notifyListeners();

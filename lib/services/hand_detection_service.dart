@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:hand_detection/hand_detection.dart' as hd;
 import 'package:ishara/models/landmarks_model.dart';
 
@@ -7,21 +10,10 @@ import 'package:ishara/models/landmarks_model.dart';
 ///
 /// يستخدم حزمة hand_detection الرسمية (MediaPipe على TFLite) مباشرةً
 /// لاكتشاف الأيدي الحقيقية واستخراج الـ 21 نقطة في الوقت الحقيقي.
-///
-/// PIPELINE:
-///   CameraImage
-///     → HandDetector.detectFromCameraImage  (off-UI-thread isolate داخلي)
-///     → hands.isEmpty? → return null  (مسح فوري، لا cached landmarks)
-///     → تحويل Hand → HandLandmarks (21 نقطة normalized [0..1])
-///
-/// HARD RULES:
-///   ❌ لا معالجة متداخلة: قفل _isProcessing
-///   ❌ لا cached/last landmarks عند اختفاء اليد
-///   ✅ hands.isEmpty → null → UI يمسح النقاط فوراً
-///   ✅ الإحداثيات المُعادة normalized [0..1]
+/// مع دعم دوران الإطار والكاميرا الأمامية/الخلفية بدقة.
 class HandDetectionService {
-  static const double _detectorConf = 0.75;
-  static const double _minLandmarkScore = 0.50;
+  static const double _detectorConf = 0.70;
+  static const double _minLandmarkScore = 0.45;
   static const int _maxDetections = 2;
   static const int _maxDim = 640;
 
@@ -30,6 +22,10 @@ class HandDetectionService {
   bool _isProcessing = false;
 
   bool get isInitialized => _isInitialized;
+
+  void resetState() {
+    _isProcessing = false;
+  }
 
   /// تهيئة النموذج — يُشغَّل مرة واحدة عند بدء التطبيق
   Future<void> initialize() async {
@@ -45,7 +41,9 @@ class HandDetectionService {
       );
       _isInitialized = true;
       if (kDebugMode) {
-        debugPrint('[HandDetectionService] ✅ Initialized — hand_detection v4.1.0');
+        debugPrint(
+          '[HandDetectionService] ✅ Initialized — hand_detection v4.1.0',
+        );
       }
     } catch (e) {
       _isInitialized = false;
@@ -56,17 +54,41 @@ class HandDetectionService {
   }
 
   /// كشف اليد من CameraImage — الوظيفة الرئيسية
-  ///
-  /// يعيد [HandLandmarks] إذا وُجدت يد حقيقية، أو null إذا لم توجد.
-  /// مُقيَّد ذاتياً: يتجاهل الفريم إذا كان الفريم السابق لم ينته بعد.
-  Future<HandLandmarks?> detectHands(CameraImage image, {int frameId = 0}) async {
+  /// مع ضبط التدوير والكاميرا الأمامية/الخلفية
+  Future<HandLandmarks?> detectHands(
+    CameraImage image, {
+    int frameId = 0,
+    int? sensorOrientation,
+    bool isFrontCamera = false,
+    DeviceOrientation deviceOrientation = DeviceOrientation.portraitUp,
+  }) async {
     if (!_isInitialized || _detector == null || _isProcessing) return null;
 
     _isProcessing = true;
     try {
+      // حساب زاوية التدوير المناسبة للمستشعر واتجاه الجهاز والكاميرا الأمامية/الخلفية
+      final hd.CameraFrameRotation? rotation = sensorOrientation == null
+          ? null
+          : hd.rotationForFrame(
+              width: image.width,
+              height: image.height,
+              sensorOrientation: sensorOrientation,
+              isFrontCamera: isFrontCamera,
+              deviceOrientation: deviceOrientation,
+            );
+
+      final Size detSize = hd.detectionSize(
+        width: image.width,
+        height: image.height,
+        rotation: rotation,
+        maxDim: _maxDim,
+      );
+
       // كشف الأيدي — يعمل خارج الـ UI thread تلقائياً (isolate داخلي)
       final List<hd.Hand> hands = await _detector!.detectFromCameraImage(
         image,
+        rotation: rotation,
+        isBgra: Platform.isMacOS,
         maxDim: _maxDim,
       );
 
@@ -81,9 +103,9 @@ class HandDetectionService {
         return null;
       }
 
-      // حساب أبعاد فضاء الكشف (بعد تقليص maxDim)
-      final double dW = _detectionWidth(image).toDouble();
-      final double dH = _detectionHeight(image).toDouble();
+      // أبعاد فضاء الكشف المحسوبة بعد الدوران
+      final double dW = detSize.width;
+      final double dH = detSize.height;
       if (dW <= 0 || dH <= 0) return null;
 
       // تحويل Hand → HandLandmarks مع تطبيع الإحداثيات
@@ -105,22 +127,6 @@ class HandDetectionService {
   // ────────────────────────────────────────────────────────────────────────
   // HELPERS
   // ────────────────────────────────────────────────────────────────────────
-
-  /// عرض الإطار بعد تقليصه إلى maxDim
-  int _detectionWidth(CameraImage image) {
-    final w = image.width;
-    final h = image.height;
-    if (w <= _maxDim && h <= _maxDim) return w;
-    return w >= h ? _maxDim : (w * _maxDim / h).round();
-  }
-
-  /// ارتفاع الإطار بعد تقليصه إلى maxDim
-  int _detectionHeight(CameraImage image) {
-    final w = image.width;
-    final h = image.height;
-    if (w <= _maxDim && h <= _maxDim) return h;
-    return h >= w ? _maxDim : (h * _maxDim / w).round();
-  }
 
   /// تحويل [hd.Hand] → [HandLandmarks] مع تطبيع الإحداثيات إلى [0..1]
   HandLandmarks? _toHandLandmarks({

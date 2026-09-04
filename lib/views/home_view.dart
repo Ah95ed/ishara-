@@ -17,6 +17,8 @@ class HomeView extends StatefulWidget {
 }
 
 class _HomeViewState extends State<HomeView> {
+  bool _developerDebugMode = false;
+
   @override
   void initState() {
     super.initState();
@@ -51,33 +53,62 @@ class _HomeViewState extends State<HomeView> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                shape: BoxShape.circle,
+        title: GestureDetector(
+          onLongPress: () {
+            setState(() {
+              _developerDebugMode = !_developerDebugMode;
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  _developerDebugMode
+                      ? 'تم تفعيل أدوات المطور (Debug Mode)'
+                      : 'تم إخفاء أدوات المطور',
+                ),
+                duration: const Duration(seconds: 1),
               ),
-              child: const Icon(Icons.pan_tool_rounded, size: 20),
-            ),
-            const SizedBox(width: 8),
-            const Text(
-              '${AppConstants.appName} - مترجم لغة الإشارة',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-          ],
+            );
+          },
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.pan_tool_rounded, size: 20),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                '${AppConstants.appName} - مترجم لغة الإشارة',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ],
+          ),
         ),
         actions: [
-          IconButton(
-            onPressed: () {
-              if (mounted) {
-                context.read<CameraProvider>().switchCamera();
-              }
+          Consumer<CameraProvider>(
+            builder: (context, cameraProvider, _) {
+              return IconButton(
+                onPressed: cameraProvider.isSwitchingCamera
+                    ? null
+                    : () {
+                        if (mounted) {
+                          cameraProvider.switchCamera();
+                        }
+                      },
+                icon: cameraProvider.isSwitchingCamera
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.flip_camera_ios_rounded),
+                tooltip: 'تبديل الكاميرا (أمامية / خلفية)',
+              );
             },
-            icon: const Icon(Icons.flip_camera_ios_rounded),
-            tooltip: 'تبديل الكاميرا (أمامية / خلفية)',
           ),
         ],
       ),
@@ -104,10 +135,12 @@ class _HomeViewState extends State<HomeView> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildCameraSection(context),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           _buildTranslationSection(context),
-          const SizedBox(height: 12),
-          _buildDebugPanelSection(context),
+          if (_developerDebugMode) ...[
+            const SizedBox(height: 12),
+            _buildDebugPanelSection(context),
+          ],
           const SizedBox(height: 20),
         ],
       ),
@@ -121,24 +154,26 @@ class _HomeViewState extends State<HomeView> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            flex: 5,
+            flex: 6,
             child: SingleChildScrollView(
               child: Column(
                 children: [
                   _buildCameraSection(context),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                   _buildTranslationSection(context),
                 ],
               ),
             ),
           ),
-          const SizedBox(width: 24),
-          Expanded(
-            flex: 5,
-            child: SingleChildScrollView(
-              child: _buildDebugPanelSection(context),
+          if (_developerDebugMode) ...[
+            const SizedBox(width: 24),
+            Expanded(
+              flex: 4,
+              child: SingleChildScrollView(
+                child: _buildDebugPanelSection(context),
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -155,7 +190,7 @@ class _HomeViewState extends State<HomeView> {
         }
         return Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(24),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.08),
@@ -165,7 +200,7 @@ class _HomeViewState extends State<HomeView> {
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(24),
             child: Stack(
               children: [
                 CameraPreviewWidget(
@@ -174,6 +209,7 @@ class _HomeViewState extends State<HomeView> {
                   landmarks: cameraProvider.isRealHand
                       ? cameraProvider.latestLandmarks
                       : null,
+                  showLandmarks: _developerDebugMode,
                   isHandDetected: cameraProvider.isRealHand,
                   isStreaming: cameraProvider.isStreaming,
                   activeSignLabel: glossController.currentSign,
@@ -208,12 +244,23 @@ class _HomeViewState extends State<HomeView> {
                               : 'استئناف',
                         ),
                         IconButton(
-                          onPressed: cameraProvider.switchCamera,
-                          icon: const Icon(
-                            Icons.flip_camera_ios,
-                            color: Colors.white,
-                            size: 20,
-                          ),
+                          onPressed: cameraProvider.isSwitchingCamera
+                              ? null
+                              : () => cameraProvider.switchCamera(),
+                          icon: cameraProvider.isSwitchingCamera
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.flip_camera_ios,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
                           tooltip: 'تبديل الكاميرا',
                         ),
                       ],
@@ -229,13 +276,15 @@ class _HomeViewState extends State<HomeView> {
   }
 
   Widget _buildTranslationSection(BuildContext context) {
-    return Consumer<GlossController>(
-      builder: (context, glossController, _) {
-        final hasSentence = glossController.hasSentence;
+    return Consumer2<GlossController, CameraProvider>(
+      builder: (context, glossController, cameraProvider, _) {
+        final displayText = glossController.displayText;
+        final hasContent = glossController.hasContent;
         final isGenerating = glossController.isGenerating;
+        final isHandDetected = cameraProvider.isRealHand;
 
         return Card(
-          elevation: 3,
+          elevation: 2,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(22),
           ),
@@ -305,47 +354,16 @@ class _HomeViewState extends State<HomeView> {
                             ),
                           ],
                         ),
-                      )
-                    else if (glossController.isModelReady)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.green),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.check_circle_outline,
-                              size: 14,
-                              color: Colors.green,
-                            ),
-                            SizedBox(width: 4),
-                            Text(
-                              'جاهز',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.green,
-                              ),
-                            ),
-                          ],
-                        ),
                       ),
                   ],
                 ),
                 const Divider(height: 24),
 
-                // ── عرض الجملة النهائية فقط (Clean Translation Area) ──
-                if (hasSentence) ...[
+                // ── عرض الترجمة النظيفة (Translation Area) ──
+                if (hasContent) ...[
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(18),
@@ -354,10 +372,10 @@ class _HomeViewState extends State<HomeView> {
                       ),
                     ),
                     child: Text(
-                      glossController.currentSentence!,
+                      displayText!,
                       textAlign: TextAlign.start,
                       style: const TextStyle(
-                        fontSize: 22,
+                        fontSize: 24,
                         fontWeight: FontWeight.bold,
                         height: 1.5,
                         letterSpacing: 0.2,
@@ -370,48 +388,47 @@ class _HomeViewState extends State<HomeView> {
                     children: [
                       FilledButton.tonalIcon(
                         onPressed: () {
-                          context.read<SignProvider>().speakText(
-                            glossController.currentSentence!,
-                          );
+                          context.read<SignProvider>().speakText(displayText);
                         },
                         icon: const Icon(Icons.volume_up_rounded, size: 20),
-                        label: const Text('نطق الجملة'),
+                        label: const Text('نطق'),
                       ),
                       const SizedBox(width: 8),
                       IconButton.filledTonal(
                         onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('تم مسح الجملة'),
-                              duration: Duration(seconds: 1),
-                            ),
-                          );
                           glossController.clearAll();
                         },
                         icon: const Icon(Icons.refresh_rounded, size: 18),
-                        tooltip: 'مسح وبدء جملة جديدة',
+                        tooltip: 'مسح',
                       ),
                     ],
                   ),
                 ] else ...[
                   Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    padding: const EdgeInsets.symmetric(vertical: 28),
                     child: Center(
-                      child: Column(
+                      child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(
-                            Icons.sign_language_rounded,
-                            size: 40,
-                            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
-                          ),
-                          const SizedBox(height: 10),
-                          const Text(
-                            'وجّه يدك نحو الكاميرا لبدء الترجمة',
+                          if (isHandDetected) ...[
+                            SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.2,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                          ],
+                          Text(
+                            'جارٍ التعرف...',
                             style: TextStyle(
-                              fontSize: 15,
-                              color: Colors.grey,
-                              fontWeight: FontWeight.w500,
+                              fontSize: 17,
+                              color: isHandDetected
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Colors.grey,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ],

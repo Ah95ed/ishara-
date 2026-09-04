@@ -69,7 +69,7 @@ class CameraPreviewWidget extends StatelessWidget {
             // 1. طبقة بث الكاميرا النقي
             CameraPreview(cameraController!),
 
-            // 2. رسم النقاط إذا طُلبت صراحة (معطلة افتراضياً)
+            // 2. رسم النقاط فقط إذا تم تمكين خيار المطور صراحة (معطلة افتراضياً)
             if (_canShowSkeleton)
               Positioned.fill(
                 child: CustomPaint(
@@ -79,45 +79,6 @@ class CameraPreviewWidget extends StatelessWidget {
                   ),
                 ),
               ),
-
-            // 3. مؤشر خفيف عند رصد اليد أعلى اليمين
-            Positioned(
-              top: 14,
-              left: 14,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.65),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: isHandDetected ? Colors.greenAccent : Colors.white24,
-                    width: 1.2,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 9,
-                      height: 9,
-                      decoration: BoxDecoration(
-                        color: isHandDetected ? Colors.greenAccent : Colors.white38,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      isHandDetected ? 'تم رصد اليد' : 'وجّه يدك للكاميرا',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
           ],
         ),
       ),

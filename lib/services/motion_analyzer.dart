@@ -14,6 +14,7 @@ class MotionFeatures {
   final double distanceRate;
   final bool isHandStatic;
   final bool isSignBoundary; // اكتمال الحركة والوصول لذروة الاستقرار (Apex)
+  final int consecutiveStaticFrames;
 
   const MotionFeatures({
     required this.averageVelocity,
@@ -26,6 +27,7 @@ class MotionFeatures {
     required this.distanceRate,
     required this.isHandStatic,
     required this.isSignBoundary,
+    this.consecutiveStaticFrames = 0,
   });
 
   factory MotionFeatures.staticInitial() {
@@ -40,6 +42,7 @@ class MotionFeatures {
       distanceRate: 0.0,
       isHandStatic: true,
       isSignBoundary: false,
+      consecutiveStaticFrames: 0,
     );
   }
 }
@@ -168,7 +171,9 @@ class MotionAnalyzer {
     }
 
     // إذا كانت اليد في حركة ثم تباطأت واستقرت في موضع الإشارة (Apex) ➔ اكتمال حد الإشارة
-    if (_isInGestureMotion && isStatic && _consecutiveStaticFrames >= 2) {
+    // أو إذا كانت اليد مستقرة بثبات تام لـ 3 إطارات على الأقل
+    if ((_isInGestureMotion && isStatic && _consecutiveStaticFrames >= 2) ||
+        (isStatic && _consecutiveStaticFrames == 3)) {
       isBoundary = true;
       _isInGestureMotion = false; // إعادة الضبط للإشارة القادمة
     }
@@ -188,6 +193,7 @@ class MotionAnalyzer {
       distanceRate: distRate,
       isHandStatic: isStatic,
       isSignBoundary: isBoundary,
+      consecutiveStaticFrames: _consecutiveStaticFrames,
     );
   }
 

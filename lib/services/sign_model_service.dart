@@ -113,44 +113,61 @@ class SignModelService {
   /// تصنيف هندسي وحركي ذكي يعتمد على بنية مفاصل اليد والحركة (Rotation-Invariant & Motion-Aware)
   SignPrediction? _classifyGeometric(HandLandmarks landmarks, {MotionFeatures? motionFeatures}) {
     final pts = landmarks.landmarks;
+    if (pts.length < 21) return null;
 
     final p0 = pts[0]; // المعصم Wrist
+    final p1 = pts[1]; // إبهام CMC
+    final p2 = pts[2]; // إبهام MCP
+    final p3 = pts[3]; // إبهام IP
     final p4 = pts[4]; // طرف الإبهام Thumb tip
-    final p8 = pts[8]; // طرف السبابة Index tip
-    final p12 = pts[12]; // طرف الوسطى Middle tip
-    final p16 = pts[16]; // طرف البنصر Ring tip
-    final p20 = pts[20]; // طرف الخنصر Pinky tip
 
-    // مفاصل اليد الأساسية (PIP / MCP)
+    final p5 = pts[5]; // قاعدة السبابة Index MCP
     final p6 = pts[6]; // مفصل السبابة PIP
+    final p7 = pts[7]; // مفصل السبابة DIP
+    final p8 = pts[8]; // طرف السبابة Index tip
+
     final p9 = pts[9]; // قاعدة الوسطى Middle MCP
     final p10 = pts[10]; // مفصل الوسطى PIP
+    final p11 = pts[11]; // مفصل الوسطى DIP
+    final p12 = pts[12]; // طرف الوسطى Middle tip
+
+    final p13 = pts[13]; // قاعدة البنصر Ring MCP
     final p14 = pts[14]; // مفصل البنصر PIP
+    final p15 = pts[15]; // مفصل البنصر DIP
+    final p16 = pts[16]; // طرف البنصر Ring tip
+
+    final p17 = pts[17]; // قاعدة الخنصر Pinky MCP
     final p18 = pts[18]; // مفصل الخنصر PIP
+    final p19 = pts[19]; // مفصل الخنصر DIP
+    final p20 = pts[20]; // طرف الخنصر Pinky tip
 
-    // مقياس حجم كف اليد (مسافة المعصم إلى قاعدة الوسطى)
-    final palmScale = _dist(p0, p9).clamp(0.01, 10.0);
+    // مقياس حجم كف اليد المعياري (مسافة المعصم إلى قاعدة الوسطى)
+    final palmScale = _dist(p0, p9).clamp(0.02, 10.0);
 
-    // فحص امتداد كل إصبع مقارنة ببعده عن المعصم
-    final bool indexExtended = _dist(p8, p0) > _dist(p6, p0) * 1.15;
-    final bool middleExtended = _dist(p12, p0) > _dist(p10, p0) * 1.15;
-    final bool ringExtended = _dist(p16, p0) > _dist(p14, p0) * 1.15;
-    final bool pinkyExtended = _dist(p20, p0) > _dist(p18, p0) * 1.15;
+    // قياس استقامة كل إصبع بنسبة طول العظام الفعلي (Scale-Invariant Extension Ratio)
+    final thumbBoneLen = _dist(p1, p2) + _dist(p2, p3) + _dist(p3, p4);
+    final thumbExtRatio = _dist(p4, p2) / (thumbBoneLen > 0 ? thumbBoneLen : 1.0);
+    final bool thumbExtended = thumbExtRatio > 0.65 || _dist(p4, p9) > palmScale * 0.65;
 
-    // فحص الإبهام (ممتد للخارج أم مضموم)
-    final bool thumbExtended = _dist(p4, p9) > palmScale * 0.70;
+    final indexBoneLen = _dist(p5, p6) + _dist(p6, p7) + _dist(p7, p8);
+    final indexExtRatio = _dist(p8, p5) / (indexBoneLen > 0 ? indexBoneLen : 1.0);
+    final bool indexExtended = indexExtRatio > 0.62 || _dist(p8, p0) > _dist(p6, p0) * 1.05;
 
-    // تقارب كل الأصابع معاً في نقطة واحدة (طعام)
-    final bool allTipsTouching = _dist(p4, p8) < palmScale * 0.40 &&
-        _dist(p4, p12) < palmScale * 0.45 &&
-        _dist(p4, p16) < palmScale * 0.45 &&
-        _dist(p4, p20) < palmScale * 0.50;
+    final middleBoneLen = _dist(p9, p10) + _dist(p10, p11) + _dist(p11, p12);
+    final middleExtRatio = _dist(p12, p9) / (middleBoneLen > 0 ? middleBoneLen : 1.0);
+    final bool middleExtended = middleExtRatio > 0.62 || _dist(p12, p0) > _dist(p10, p0) * 1.05;
 
-    // علامة أحبك (ILY Sign: الإبهام والسبابة والخنصر ممتدة، والوسطى والبنصر مطوية)
-    final bool ilySign = thumbExtended && indexExtended && !middleExtended && !ringExtended && pinkyExtended;
+    final ringBoneLen = _dist(p13, p14) + _dist(p14, p15) + _dist(p15, p16);
+    final ringExtRatio = _dist(p16, p13) / (ringBoneLen > 0 ? ringBoneLen : 1.0);
+    final bool ringExtended = ringExtRatio > 0.62 || _dist(p16, p0) > _dist(p14, p0) * 1.05;
 
-    // اتجاه حركة اليد وسرعتها من MotionFeatures
+    final pinkyBoneLen = _dist(p17, p18) + _dist(p18, p19) + _dist(p19, p20);
+    final pinkyExtRatio = _dist(p20, p17) / (pinkyBoneLen > 0 ? pinkyBoneLen : 1.0);
+    final bool pinkyExtended = pinkyExtRatio > 0.60 || _dist(p20, p0) > _dist(p18, p0) * 1.05;
+
+    // مؤشرات المسافات والحركة
     final double vel = motionFeatures?.averageVelocity ?? 0.0;
+    final double dirX = motionFeatures?.directionX.abs() ?? 0.0;
     final double dirY = motionFeatures?.directionY ?? 0.0;
     final double dirZ = motionFeatures?.directionZ ?? 0.0;
 
@@ -159,71 +176,76 @@ class SignModelService {
 
     // ────────────────────────────────── قواعد التعرف على الكلمات الكاملة (Glosses) ──────────────────────────────────
 
-    // 1. طعام (جميع أطراف الأصابع مجتمعة في نقطة واحدة)
-    if (allTipsTouching) {
-      label = 'طعام';
-      confidence = 0.94;
-    }
-    // 2. أحبك (إشارة ILY العالمية للغة الإشارة: إبهام + سبابة + خنصر)
-    else if (ilySign) {
+    // 1. أحبك (إشارة ILY العالمية: إبهام + سبابة + خنصر ممتدة، والوسطى والبنصر مطوية)
+    if (thumbExtended && indexExtended && !middleExtended && !ringExtended && pinkyExtended) {
       label = 'أحبك';
-      confidence = 0.96;
+      confidence = 0.95;
     }
-    // 3. مساعدة / Thumbs Up (الإبهام ممتد للأعلى وباقي الأصابع مطوية بقبضة)
-    else if (thumbExtended && !indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
-      label = 'مساعدة';
-      confidence = 0.93;
-    }
-    // 4. ماء (ثلاثة أصابع ممتدة: السبابة + الوسطى + البنصر مع طي الخنصر)
+    // 2. ماء (ثلاثة أصابع ممتدة: السبابة والوسطى والبنصر مع طي الخنصر والإبهام)
     else if (indexExtended && middleExtended && ringExtended && !pinkyExtended) {
       label = 'ماء';
       confidence = 0.94;
     }
-    // 5. السلام (كف مفتوح بالكامل وجميع الأصابع الـ 5 ممتدة)
-    else if (indexExtended && middleExtended && ringExtended && pinkyExtended && thumbExtended) {
-      label = 'السلام';
-      confidence = 0.96;
+    // 3. مساعدة / Thumbs Up (الإبهام ممتد للأعلى وباقي الأصابع مطوية بقبضة)
+    else if (thumbExtended && !indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
+      label = 'مساعدة';
+      confidence = 0.94;
     }
-    // 6. أنا (السبابة ممتدة وموجهة نحو الجسم / المعصم أعلى من الإصبع أو حركة داخلية)
-    else if (indexExtended && !middleExtended && !ringExtended && !pinkyExtended && (p8.y > p6.y || dirZ < -0.15)) {
+    // 4. طعام (أطراف كافة الأصابع ملتقية معاً في نقطة واحدة كقبضة طعام نحو الفم)
+    else if (_dist(p4, p8) < palmScale * 0.45 &&
+             _dist(p4, p12) < palmScale * 0.45 &&
+             _dist(p4, p16) < palmScale * 0.48 &&
+             _dist(p4, p20) < palmScale * 0.52) {
+      label = 'طعام';
+      confidence = 0.94;
+    }
+    // 5. السلام (كف مفتوح بالكامل وأصابع ممتدة ومتباعدة)
+    else if (indexExtended && middleExtended && ringExtended && pinkyExtended && thumbExtended &&
+             _dist(p8, p20) > palmScale * 0.60) {
+      label = 'السلام';
+      confidence = 0.95;
+    }
+    // 6. شكراً (كف مفتوح مستوٍ والأصابع الأربعة ممتدة ومتقاربة)
+    else if (indexExtended && middleExtended && ringExtended && pinkyExtended &&
+             _dist(p8, p12) < palmScale * 0.30) {
+      label = 'شكراً';
+      confidence = 0.92;
+    }
+    // 7. بيت (السبابة والوسطى متقاربتان بزاوية سقف خيمة مع طي باقي الأصابع)
+    else if (indexExtended && middleExtended && !ringExtended && !pinkyExtended &&
+             _dist(p8, p12) < palmScale * 0.30 && p8.y > p6.y) {
+      label = 'بيت';
+      confidence = 0.90;
+    }
+    // 8. سوق (تقارب السبابة والإبهام كإشارة نقود/سوق مع حركة الأصابع الأخرى)
+    else if (_dist(p4, p8) < palmScale * 0.38 && (middleExtended || ringExtended)) {
+      label = 'سوق';
+      confidence = 0.90;
+    }
+    // 9. لا (إشارة نفي بحركة أفقية يمنة ويسرة للسبابة)
+    else if ((indexExtended || (indexExtended && middleExtended)) && vel > 0.03 && dirX > 0.50) {
+      label = 'لا';
+      confidence = 0.92;
+    }
+    // 10. نعم (قبضة اليد تتحرك عمودياً كإيماء بالرأس للأسفل)
+    else if (!indexExtended && !middleExtended && !ringExtended && !pinkyExtended && vel > 0.025 && dirY > 0.25) {
+      label = 'نعم';
+      confidence = 0.92;
+    }
+    // 11. ذهاب (السبابة والوسطى ممتدتان مع حركة للأمام)
+    else if (indexExtended && middleExtended && !ringExtended && !pinkyExtended && vel > 0.035) {
+      label = 'ذهاب';
+      confidence = 0.90;
+    }
+    // 12. أنا (السبابة ممتدة وموجهة نحو الجسم/الصدر)
+    else if (indexExtended && !middleExtended && !ringExtended && !pinkyExtended && (p8.y > p6.y || dirZ < -0.10)) {
       label = 'أنا';
       confidence = 0.92;
     }
-    // 7. أنت (السبابة ممتدة للأمام نحو الكاميرا)
+    // 13. أنت (السبابة ممتدة للأمام نحو الكاميرا أو المخاطب)
     else if (indexExtended && !middleExtended && !ringExtended && !pinkyExtended && p8.y <= p6.y) {
-      // فحص هل هناك حركة أفقية لتمييز "لا"
-      if (vel > 0.05 && (motionFeatures?.directionX.abs() ?? 0.0) > 0.6) {
-        label = 'لا';
-        confidence = 0.90;
-      } else {
-        label = 'أنت';
-        confidence = 0.91;
-      }
-    }
-    // 8. شكراً (الأصابع الأربعة ممتدة ومضمومة معاً ككف مستوٍ)
-    else if (indexExtended && middleExtended && ringExtended && pinkyExtended && !thumbExtended) {
-      label = 'شكراً';
+      label = 'أنت';
       confidence = 0.91;
-    }
-    // 9. نعم (قبضة اليد تتحرك بحركة إيماء للأسفل)
-    else if (!indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
-      if (vel > 0.03 && dirY > 0.3) {
-        label = 'نعم';
-        confidence = 0.92;
-      } else {
-        // قبضة يد ساكنة دون حركة لا نعتبرها حرف م
-        return null;
-      }
-    }
-    // 10. ذهاب (السبابة والوسطى ممتدتان مع حركة للأمام)
-    else if (indexExtended && middleExtended && !ringExtended && !pinkyExtended && vel > 0.04) {
-      label = 'ذهاب';
-      confidence = 0.89;
-    }
-    // 11. سوق (تقارب السبابة والإبهام مع حركة متكررة)
-    else if (_dist(p4, p8) < palmScale * 0.40 && middleExtended && ringExtended) {
-      label = 'سوق';
-      confidence = 0.88;
     }
 
     if (label.isEmpty || !WordOnlyFilter.isValidWord(label)) {

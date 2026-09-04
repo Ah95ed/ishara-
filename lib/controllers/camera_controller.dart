@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:ishara/constants/app_constants.dart';
 import 'package:ishara/models/landmarks_model.dart';
 import 'package:ishara/services/camera_service.dart';
@@ -16,6 +17,9 @@ class CameraProvider extends ChangeNotifier {
   CameraStatus _status = CameraStatus.initial;
   String? _errorMessage;
   CameraImage? _latestImage;
+
+  bool _isSwitchingCamera = false;
+  void Function(CameraImage image)? _streamCallback;
 
   // قفل الفريمات ومنع التراكم (Frame Throttling & Busy Drop)
   bool _isProcessingFrame = false;
@@ -42,6 +46,7 @@ class CameraProvider extends ChangeNotifier {
   bool get isReady => _status == CameraStatus.ready || _status == CameraStatus.streaming;
   bool get hasError => _status == CameraStatus.error;
   bool get isStreaming => _status == CameraStatus.streaming;
+  bool get isSwitchingCamera => _isSwitchingCamera;
   CameraImage? get latestImage => _latestImage;
   CameraController? get cameraController => _cameraService.controller;
 
@@ -85,15 +90,49 @@ class CameraProvider extends ChangeNotifier {
     }
   }
 
+  /// تبديل الكاميرا (الأمامية ↔ الخلفية) وفق الخطوات الـ 8 المحددة بدقة
   Future<void> switchCamera() async {
-    final wasStreaming = isStreaming;
-    if (wasStreaming) await stopStream();
-    final nextLens = _cameraService.currentLens == CameraLensDirection.back
-        ? CameraLensDirection.front
-        : CameraLensDirection.back;
-    await _cameraService.initialize(lensDirection: nextLens);
-    _clearHand();
-    _setStatus(CameraStatus.ready);
+    if (_isSwitchingCamera) return;
+    _isSwitchingCamera = true;
+    notifyListeners();
+
+    try {
+      final wasStreaming = isStreaming;
+
+      // 1. أوقف image stream الحالي
+      if (wasStreaming) {
+        await stopStream();
+      }
+
+      // 2. dispose للـ CameraController القديم بشكل آمن (يتم داخل CameraService)
+      // 3. اختر الكاميرا الأخرى
+      final nextLens = _cameraService.currentLens == CameraLensDirection.back
+          ? CameraLensDirection.front
+          : CameraLensDirection.back;
+
+      // 4 + 5. أنشئ CameraController جديد مع initialize
+      await _cameraService.initialize(lensDirection: nextLens);
+
+      // 6. أعد تشغيل image stream
+      if (wasStreaming && _streamCallback != null) {
+        await startStream(_streamCallback!);
+      } else {
+        _setStatus(CameraStatus.ready);
+      }
+
+      // 7. أعد ربط Hand Detection وتفريغ الحالة السابقة
+      _clearHand();
+      _handDetectionService.resetState();
+
+      // 8. حدث Provider/UI
+      notifyListeners();
+    } catch (e) {
+      if (kDebugMode) debugPrint('[CameraProvider] switchCamera error: $e');
+      _setStatus(CameraStatus.error, 'تعذر تبديل الكاميرا: $e');
+    } finally {
+      _isSwitchingCamera = false;
+      notifyListeners();
+    }
   }
 
   Future<bool> requestPermission() async {
@@ -118,6 +157,7 @@ class CameraProvider extends ChangeNotifier {
 
   Future<void> startStream(void Function(CameraImage image) onImage) async {
     if (!_cameraService.isInitialized) return;
+    _streamCallback = onImage;
     _clearHand();
     _currentFrameSequence = 0;
     _fpsFrameCounter = 0;
@@ -161,10 +201,13 @@ class CameraProvider extends ChangeNotifier {
     try {
       _calcFps();
 
-      // ── كشف اليد عبر hand_detection package ──
+      // ── كشف اليد عبر hand_detection package مع التدوير واتجاه الكاميرا ──
       final HandLandmarks? result = await _handDetectionService.detectHands(
         image,
         frameId: thisFrameId,
+        sensorOrientation: _cameraService.sensorOrientation,
+        isFrontCamera: _cameraService.isFrontCamera,
+        deviceOrientation: _cameraService.controller?.value.deviceOrientation ?? DeviceOrientation.portraitUp,
       );
 
       // تحديث الحالة

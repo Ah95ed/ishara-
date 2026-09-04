@@ -40,6 +40,21 @@ class GlossController extends ChangeNotifier {
   GlossResult? get lastResult => _lastResult;
   bool get hasSentence => _currentSentence != null && _currentSentence!.isNotEmpty;
   bool get hasSign => _currentSign != null && _currentSign!.isNotEmpty;
+  bool get hasContent => displayText != null && displayText!.isNotEmpty;
+
+  /// النص المراد عرضه للمستخدم (الجملة المصاغة أو الكلمات المعتمدة فوراً)
+  String? get displayText {
+    if (_currentSentence != null && _currentSentence!.isNotEmpty) {
+      return _currentSentence;
+    }
+    if (_glossBuffer.isNotEmpty) {
+      return _glossBuffer.join(' ');
+    }
+    if (_currentSign != null && _currentSign!.isNotEmpty) {
+      return _currentSign;
+    }
+    return null;
+  }
 
   // ────────────────────────────────── 1. Fast Path ──────────────────────────────────
 

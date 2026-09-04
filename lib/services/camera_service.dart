@@ -12,6 +12,9 @@ class CameraService {
   List<CameraDescription>? get cameras => _cameras;
   bool get isInitialized => _controller?.value.isInitialized ?? false;
   CameraLensDirection get currentLens => _currentLens;
+  CameraDescription? get description => _controller?.description;
+  int? get sensorOrientation => _controller?.description.sensorOrientation;
+  bool get isFrontCamera => _currentLens == CameraLensDirection.front;
 
   Future<void> initialize({CameraLensDirection? lensDirection}) async {
     if (_isDisposed) return;
@@ -28,6 +31,7 @@ class CameraService {
         (c) => c.lensDirection == _currentLens,
         orElse: () => _cameras!.first,
       );
+      _currentLens = camera.lensDirection;
 
       await _disposeController();
 
@@ -50,11 +54,16 @@ class CameraService {
 
   Future<void> startStream(void Function(CameraImage image) onImage) async {
     if (_controller == null || !_controller!.value.isInitialized) return;
+    if (_controller!.value.isStreamingImages) return;
     await _controller!.startImageStream(onImage);
   }
 
   Future<void> stopStream() async {
-    await _controller?.stopImageStream();
+    if (_controller != null && _controller!.value.isInitialized && _controller!.value.isStreamingImages) {
+      try {
+        await _controller!.stopImageStream();
+      } catch (_) {}
+    }
   }
 
   Future<void> disposeController() async {
@@ -63,16 +72,24 @@ class CameraService {
 
   Future<void> dispose() async {
     _isDisposed = true;
-    await _controller?.stopImageStream();
+    await stopStream();
     await _disposeController();
     _controller = null;
     _cameras = null;
   }
 
   Future<void> _disposeController() async {
-    await _controller?.stopImageStream();
-    await _controller?.dispose();
-    _controller = null;
+    if (_controller != null) {
+      if (_controller!.value.isStreamingImages) {
+        try {
+          await _controller!.stopImageStream();
+        } catch (_) {}
+      }
+      try {
+        await _controller!.dispose();
+      } catch (_) {}
+      _controller = null;
+    }
   }
 
   CameraLensDirection get defaultLens {
