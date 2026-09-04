@@ -92,8 +92,11 @@ class SignModelService {
         final tfliteResult = _predictTflite(landmarks);
         if (tfliteResult != null && WordOnlyFilter.isValidWord(tfliteResult.label)) {
           if (geometricResult != null && geometricResult.label == tfliteResult.label) {
-            finalResult = tfliteResult.copyWith(confidence: max(tfliteResult.confidence, 0.95));
-          } else if (tfliteResult.confidence >= 0.85) {
+            finalResult = tfliteResult.copyWith(
+              confidence: max(tfliteResult.confidence, 0.95),
+              confidenceMargin: max(tfliteResult.confidenceMargin, 0.30),
+            );
+          } else if (tfliteResult.confidence >= 0.70) {
             finalResult = tfliteResult;
           }
         }
@@ -257,10 +260,13 @@ class SignModelService {
       confidence: confidence,
       timestamp: DateTime.now(),
       handedness: landmarks.handedness,
+      secondLabel: null,
+      secondConfidence: 0.40,
+      confidenceMargin: (confidence - 0.40).clamp(0.0, 1.0),
     );
   }
 
-  /// استنتاج نموذج TFLite الرسمي مع فحص صارم للكلمات
+  /// استنتاج نموذج TFLite الرسمي مع فحص صارم للكلمات وحساب Top-1 و Top-2 و Margin
   SignPrediction? _predictTflite(HandLandmarks landmarks) {
     if (_interpreter == null) return null;
 
@@ -275,11 +281,19 @@ class SignModelService {
     final probs = output[0];
     int maxIdx = 0;
     double maxProb = probs[0];
+    int secondIdx = -1;
+    double secondProb = 0.0;
 
     for (int i = 1; i < probs.length; i++) {
-      if (probs[i] > maxProb) {
-        maxProb = probs[i];
+      final p = probs[i];
+      if (p > maxProb) {
+        secondProb = maxProb;
+        secondIdx = maxIdx;
+        maxProb = p;
         maxIdx = i;
+      } else if (p > secondProb) {
+        secondProb = p;
+        secondIdx = i;
       }
     }
 
@@ -295,12 +309,23 @@ class SignModelService {
       return null;
     }
 
+    String? secondLabel;
+    if (secondIdx >= 0 && secondIdx < _labels.length) {
+      final rawSecond = _labels[secondIdx];
+      secondLabel = arabicLabelMap[rawSecond] ?? rawSecond;
+    }
+
+    final margin = (maxProb - secondProb).clamp(0.0, 1.0);
+
     return SignPrediction(
       label: arabicLabel,
       confidence: maxProb.clamp(0.0, 1.0),
       timestamp: DateTime.now(),
       handedness: landmarks.handedness,
       signId: maxIdx,
+      secondLabel: secondLabel,
+      secondConfidence: secondProb.clamp(0.0, 1.0),
+      confidenceMargin: margin,
     );
   }
 

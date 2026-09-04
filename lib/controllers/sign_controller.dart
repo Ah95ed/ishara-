@@ -19,7 +19,7 @@ class SignProvider extends ChangeNotifier {
 
   SignPrediction? _currentRealtimePrediction;
   SignPrediction? _lastStablePrediction;
-  SignStabilityState _stabilityState = SignStabilityState.detecting;
+  SignStabilityState _stabilityState = SignStabilityState.idle;
   bool _isProcessing = false;
   bool _autoSpeakEnabled = false;
   bool _autoTranslateEnabled = true;
@@ -86,7 +86,7 @@ class SignProvider extends ChangeNotifier {
     if (landmarks == null || !landmarks.isValid) {
       _motionAnalyzer.reset();
       _currentRealtimePrediction = null;
-      _temporalStabilizer.processPrediction(null);
+      _temporalStabilizer.processPrediction(null, isHandStatic: true);
       _wordBuffer.resetCurrentHand();
       notifyListeners();
       return;
@@ -107,11 +107,12 @@ class SignProvider extends ChangeNotifier {
       // 2. تشغيل نموذج الاستنتاج مع تمرير خصائص الحركة
       final prediction = await _mlService.predict(landmarks, motionFeatures: motion);
 
-      // 3. ترشيح الحروف المنفردة عبر WordOnlyFilter والتثبيت الزمني المتكيف
+      // 3. ترشيح الحروف المنفردة عبر WordOnlyFilter وتمرير التنبؤ والحركة لآلة الحالة الزمنية
       if (prediction != null && WordOnlyFilter.isValidWord(prediction.label)) {
         _currentRealtimePrediction = prediction;
         _temporalStabilizer.processPrediction(
           prediction,
+          motion: motion,
           isHandStatic: motion.isHandStatic,
           isSignBoundary: motion.isSignBoundary,
         );
@@ -119,6 +120,7 @@ class SignProvider extends ChangeNotifier {
         _currentRealtimePrediction = null;
         _temporalStabilizer.processPrediction(
           null,
+          motion: motion,
           isHandStatic: motion.isHandStatic,
           isSignBoundary: motion.isSignBoundary,
         );
@@ -161,7 +163,7 @@ class SignProvider extends ChangeNotifier {
     _motionAnalyzer.reset();
     _currentRealtimePrediction = null;
     _lastStablePrediction = null;
-    _stabilityState = SignStabilityState.detecting;
+    _stabilityState = SignStabilityState.idle;
     notifyListeners();
   }
 

@@ -280,8 +280,11 @@ class _HomeViewState extends State<HomeView> {
       builder: (context, glossController, cameraProvider, _) {
         final displayText = glossController.displayText;
         final hasContent = glossController.hasContent;
+        final hasSentence = glossController.hasSentence;
+        final hasBuffer = glossController.hasBuffer;
         final isGenerating = glossController.isGenerating;
         final isHandDetected = cameraProvider.isRealHand;
+        final stateColor = _getStateColor(context, glossController.stabilityState);
 
         return Card(
           elevation: 2,
@@ -317,6 +320,24 @@ class _HomeViewState extends State<HomeView> {
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 17,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        // شارة آلة الحالة الزمنية (State Machine Badge)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: stateColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: stateColor.withValues(alpha: 0.5)),
+                          ),
+                          child: Text(
+                            glossController.stabilityState.arabicLabel,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: stateColor,
+                            ),
                           ),
                         ),
                       ],
@@ -359,7 +380,7 @@ class _HomeViewState extends State<HomeView> {
                 ),
                 const Divider(height: 24),
 
-                // ── عرض الترجمة النظيفة (Translation Area) ──
+                // ── عرض الترجمة النظيفة وتجميع الـ Gloss الحي ──
                 if (hasContent) ...[
                   Container(
                     width: double.infinity,
@@ -368,24 +389,64 @@ class _HomeViewState extends State<HomeView> {
                       color: Theme.of(context).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(
-                        color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.6),
+                        color: hasSentence
+                            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)
+                            : Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.6),
                       ),
                     ),
-                    child: Text(
-                      displayText!,
-                      textAlign: TextAlign.start,
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        height: 1.5,
-                        letterSpacing: 0.2,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              hasSentence ? 'الجملة المصاغة (Gemma3 GGUF):' : 'تجميع الإشارات الحية (Gloss Buffer):',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: hasSentence
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                            if (hasBuffer && !hasSentence)
+                              Text(
+                                '${glossController.bufferedGlossTokens.length} كلمات',
+                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          displayText!,
+                          textAlign: TextAlign.start,
+                          style: TextStyle(
+                            fontSize: hasSentence ? 24 : 21,
+                            fontWeight: FontWeight.bold,
+                            height: 1.5,
+                            letterSpacing: 0.2,
+                            color: hasSentence ? null : Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 14),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
+                      // زر ترجم الآن اليدوي (Manual Translation Trigger)
+                      if (hasBuffer && !isGenerating) ...[
+                        FilledButton.icon(
+                          onPressed: () {
+                            glossController.triggerManualTranslation();
+                          },
+                          icon: const Icon(Icons.translate_rounded, size: 18),
+                          label: const Text('ترجم الآن'),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
                       FilledButton.tonalIcon(
                         onPressed: () {
                           context.read<SignProvider>().speakText(displayText);
@@ -487,6 +548,24 @@ class _HomeViewState extends State<HomeView> {
         ],
       ),
     );
+  }
+
+  Color _getStateColor(BuildContext context, SignStabilityState state) {
+    switch (state) {
+      case SignStabilityState.idle:
+      case SignStabilityState.detecting:
+        return Colors.grey;
+      case SignStabilityState.signing:
+      case SignStabilityState.candidate:
+        return Colors.blue;
+      case SignStabilityState.candidateStable:
+        return Colors.orange;
+      case SignStabilityState.committed:
+      case SignStabilityState.stable:
+        return Colors.green;
+      case SignStabilityState.cooldown:
+        return Colors.purple;
+    }
   }
 }
 
