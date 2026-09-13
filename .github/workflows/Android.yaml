@@ -1,0 +1,69 @@
+name: Ishara CI/CD
+
+on:
+  push:
+    tags:
+      - "v*" # يشتغل عند رفع تاغ مثل v1.0.0
+
+jobs:
+  build_android:
+    name: APK Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # ضرورية لإنشاء Release
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: "3.47.2"
+
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/key.jks
+
+      - name: Create key.properties
+        run: |
+          cat <<EOF > android/key.properties
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          storeFile=key.jks
+          EOF
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/outputs/flutter-apk/app-release.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+#           git add .github/workflows/android.yaml
+# git commit -m "fix: correct keystore relative path"
+# git push origin main
+# git tag -d v1.0.0
+# git push origin :refs/tags/v1.0.0
+# git tag v1.0.0
+# git push origin v1.0.0
