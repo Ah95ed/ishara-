@@ -122,11 +122,11 @@ class SignStateMachine {
   }) {
     _globalFrameIndex++;
 
-    // ──────────────── 1. التحقق الصارم من حضور الرأس واليدين (المتطلب 1 و 2) ────────────────
-    if (!presence.hasHeadOrFace) {
+    // ──────────────── 1. التحقق الصارم من حضور الشخص أولاً ثم اليد (المتطلب 1 و 2 و 4) ────────────────
+    if (!presence.personPresent) {
       _missingHeadStreak++;
       if (_state == SignTemporalState.signActive && _missingHeadStreak <= 3) {
-        // سماح بتذبذب عابر قصير جداً للرأس (إطار إلى إطارين)
+        // سماح بتذبذب عابر قصير جداً للشخص
       } else {
         _transitionTo(SignTemporalState.waitingForPerson);
         _abortCurrentSign();

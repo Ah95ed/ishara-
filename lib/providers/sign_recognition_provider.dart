@@ -3,6 +3,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:ishara/models/sign_segment.dart';
+import 'package:ishara/services/pose/person_presence_detector.dart';
 import 'package:ishara/services/pose/pose_extractor_service.dart';
 import 'package:ishara/services/pose/pose_preprocessor.dart';
 import 'package:ishara/services/pose/sign_presence_validator.dart';
@@ -16,17 +17,19 @@ import 'package:ishara/services/word_only_filter.dart';
 
 /// مزود الحالة الرئيسي لتمييز لغة الإشارة العربية (SignRecognitionProvider)
 /// ينسق بين:
-/// 1. التحقق الصارم من الحضور (SignPresenceValidator)
-/// 2. محلل الحركة الزمني وطاقة الحركة مع Pre-roll (TemporalMotionAnalyzer)
-/// 3. آلة الحالة الزمنية لتقطيع الإشارة (SignStateMachine)
-/// 4. نموذج CSLR Transformer (ishara_model.tflite) وفك تشفير CTC والتحقق المزدوج (A & B)
-/// 5. طبقة الرفض وقمع التكرار
+/// 1. كاشف حضور الشخص واليد المركزي (PersonPresenceDetector)
+/// 2. التحقق الصارم من الحضور (SignPresenceValidator)
+/// 3. محلل الحركة الزمني وطاقة الحركة مع Pre-roll (TemporalMotionAnalyzer)
+/// 4. آلة الحالة الزمنية لتقطيع الإشارة (SignStateMachine)
+/// 5. نموذج CSLR Transformer (ishara_model.tflite) وفك تشفير CTC والتحقق المزدوج (A & B)
+/// 6. طبقة الرفض وقمع التكرار
 class SignRecognitionProvider extends ChangeNotifier {
   final IsharaRecognitionService _modelService;
   final IsharaVocabService _vocabService;
   final PosePreprocessor _preprocessor;
   final PoseExtractorService _poseExtractor;
   final SignPresenceValidator _presenceValidator;
+  final PersonPresenceDetector _presenceDetector;
   final TemporalMotionAnalyzer _motionAnalyzer;
   final SignStateMachine _stateMachine;
   late final CtcGreedyDecoder _ctcDecoder;
@@ -54,6 +57,7 @@ class SignRecognitionProvider extends ChangeNotifier {
     PosePreprocessor? preprocessor,
     PoseExtractorService? poseExtractor,
     SignPresenceValidator? presenceValidator,
+    PersonPresenceDetector? presenceDetector,
     TemporalMotionAnalyzer? motionAnalyzer,
     SignStateMachine? stateMachine,
   })  : _modelService = modelService ?? IsharaRecognitionService(),
@@ -61,6 +65,7 @@ class SignRecognitionProvider extends ChangeNotifier {
         _preprocessor = preprocessor ?? PosePreprocessor(),
         _poseExtractor = poseExtractor ?? PoseExtractorService(),
         _presenceValidator = presenceValidator ?? SignPresenceValidator(),
+        _presenceDetector = presenceDetector ?? PersonPresenceDetector(),
         _motionAnalyzer = motionAnalyzer ?? TemporalMotionAnalyzer(),
         _stateMachine = stateMachine ?? SignStateMachine() {
     _ctcDecoder = CtcGreedyDecoder(vocabService: _vocabService);
@@ -78,8 +83,12 @@ class SignRecognitionProvider extends ChangeNotifier {
   bool get isAnalyzing => _stateMachine.state == SignTemporalState.analyzing;
 
   // Getters للمتطلب 30 (Debug Overlay)
-  bool get headPresent => _lastPresence.hasHeadOrFace;
-  bool get handPresent => _lastPresence.hasAtLeastOneHand;
+  bool get personPresent => _presenceDetector.isPersonPresent;
+  bool get bodyPosePresent => _presenceDetector.currentState.bodyPosePresent;
+  bool get headPresent => _lastPresence.headPresent;
+  bool get handPresent => _presenceDetector.isHandPresent;
+  bool get leftHandPresent => _presenceDetector.currentState.leftHandPresent;
+  bool get rightHandPresent => _presenceDetector.currentState.rightHandPresent;
   bool get facePresent => _lastPresence.facePresent;
   bool get lipsPresent => _lastPresence.lipsPresent;
   double get motionEnergy => _lastMotion.motionEnergy;
@@ -136,6 +145,7 @@ class SignRecognitionProvider extends ChangeNotifier {
       return;
     }
     _isRecognizing = true;
+    _presenceDetector.reset();
     _stateMachine.reset();
     _motionAnalyzer.reset();
     _preprocessor.reset();
@@ -152,6 +162,7 @@ class SignRecognitionProvider extends ChangeNotifier {
   /// إيقاف التعرف مؤقتاً
   void stopRecognition() {
     _isRecognizing = false;
+    _presenceDetector.reset();
     _stateMachine.reset();
     _motionAnalyzer.reset();
     _preprocessor.reset();
@@ -169,7 +180,7 @@ class SignRecognitionProvider extends ChangeNotifier {
     if (!_isModelLoaded || !_isRecognizing) return;
 
     try {
-      // 1. استخراج معالم الأيدي والوضعيات من الكاميرا
+      // 1. استخراج معالم الأيدي والوضعيات من الكاميرا مع دوران الإطار والمرآة
       final extracted = await _poseExtractor.extractFromCameraImage(
         image,
         sensorOrientation: sensorOrientation,
@@ -177,7 +188,17 @@ class SignRecognitionProvider extends ChangeNotifier {
         deviceOrientation: deviceOrientation,
       );
 
-      // 2. تقييم الحضور الصارم (المتطلب 1 و 2: Head/Face + at least one Hand)
+      // 2. تحديث كاشف حضور الشخص واليد المركزي مع الاستقرار الزمني (Temporal Persistence)
+      final presenceState = _presenceDetector.updatePresence(
+        bodyPosePresent: extracted.bodyPosePresent,
+        headPresent: extracted.headPresent,
+        facePresent: extracted.facePresent,
+        lipsPresent: extracted.lipsPresent,
+        leftHandPresent: extracted.leftHand != null,
+        rightHandPresent: extracted.rightHand != null,
+      );
+
+      // 3. تقييم الحضور الصارم
       final presence = _presenceValidator.evaluatePresence(
         rightHand: extracted.rightHand,
         leftHand: extracted.leftHand,
@@ -186,10 +207,14 @@ class SignRecognitionProvider extends ChangeNotifier {
         rightHandConfidence: extracted.rightHandConfidence,
         leftHandConfidence: extracted.leftHandConfidence,
         headConfidence: extracted.headConfidence,
+        bodyPosePresent: presenceState.bodyPosePresent,
+        headPresentDirect: presenceState.headPresent,
+        facePresentDirect: presenceState.facePresent,
+        personPresentDirect: presenceState.personPresent,
       );
       _lastPresence = presence;
 
-      // 3. تطبيق المعالجة المسبقة والتطبيع الصارم المطابق لـ datasetv2.py
+      // 4. تطبيق المعالجة المسبقة والتطبيع الصارم المطابق لـ datasetv2.py
       final frame86x2 = _preprocessor.processFrame(
         rawRightHand: extracted.rightHand,
         rawLeftHand: extracted.leftHand,
@@ -197,7 +222,7 @@ class SignRecognitionProvider extends ChangeNotifier {
         rawBody: extracted.body,
       );
 
-      // 4. تحليل الحركة الزمنية وحساب طاقة الحركة الموزونة (المتطلب 5 و 6)
+      // 5. تحليل الحركة الزمنية وحساب طاقة الحركة الموزونة
       final motion = _motionAnalyzer.analyzeFrame(
         rightHand: extracted.rightHand,
         leftHand: extracted.leftHand,
@@ -206,14 +231,14 @@ class SignRecognitionProvider extends ChangeNotifier {
       );
       _lastMotion = motion;
 
-      // 5. حفظ إطارات الـ Pre-roll أثناء حالة الاستعداد (READY أو COOLDOWN)
+      // 6. حفظ إطارات الـ Pre-roll أثناء حالة الاستعداد (READY أو COOLDOWN)
       if (presence.isSignEligible &&
           (_stateMachine.state == SignTemporalState.ready ||
               _stateMachine.state == SignTemporalState.cooldown)) {
         _motionAnalyzer.recordPreRollFrame(frame86x2);
       }
 
-      // 6. تشغيل آلة الحالة الزمنية (المتطلب 4 و 7 و 8 و 9)
+      // 7. تشغيل آلة الحالة الزمنية
       final stateBefore = _stateMachine.state;
       _stateMachine.processFrame(
         presence: presence,
@@ -222,7 +247,10 @@ class SignRecognitionProvider extends ChangeNotifier {
         preRollFrames: _motionAnalyzer.preRollFrames,
       );
 
-      // 7. إذا انتقلت الحالة إلى ANALYZING ➔ تشغيل الاستنتاج وتحليل الشريحة المكتملة
+      // 8. طباعة سجلات الـ Debug المطلوبة بالصيغة المحددة تماماً
+      _presenceDetector.logDebugInfo(_stateMachine.state);
+
+      // 9. إذا انتقلت الحالة إلى ANALYZING ➔ تشغيل الاستنتاج وتحليل الشريحة المكتملة
       if (_stateMachine.state == SignTemporalState.analyzing &&
           stateBefore != SignTemporalState.analyzing) {
         final segment = _stateMachine.completedSegment;

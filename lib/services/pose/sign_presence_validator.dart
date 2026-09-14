@@ -1,5 +1,7 @@
 /// نتيجة تقييم حضور عناصر الجسم في الإطار
 class FramePresenceResult {
+  final bool personPresent;
+  final bool bodyPosePresent;
   final bool headPresent;
   final bool facePresent;
   final bool lipsPresent;
@@ -9,6 +11,8 @@ class FramePresenceResult {
   final double headConfidence;
 
   const FramePresenceResult({
+    required this.personPresent,
+    required this.bodyPosePresent,
     required this.headPresent,
     required this.facePresent,
     required this.lipsPresent,
@@ -21,14 +25,19 @@ class FramePresenceResult {
   /// تحقق شرط: وجود يد واحدة على الأقل
   bool get hasAtLeastOneHand => rightHandPresent || leftHandPresent;
 
+  /// تحقق شرط: وجود شخص (الرأس أو الوجه أو وضعية الجسم)
+  bool get hasPerson => personPresent;
+
   /// تحقق شرط: الرأس أو الوجه متواجد
   bool get hasHeadOrFace => headPresent || facePresent;
 
-  /// الشرط الإلزامي للمتطلب 1 و 2:
-  /// ممنوع الترجمة أو بدء إشارة بدون Head/Face AND at least one Hand
-  bool get isSignEligible => hasHeadOrFace && hasAtLeastOneHand;
+  /// الشرط الإلزامي للإشارة:
+  /// وجود شخص موثوق AND وجود يد واحدة على الأقل
+  bool get isSignEligible => personPresent && hasAtLeastOneHand;
 
   static const FramePresenceResult empty = FramePresenceResult(
+    personPresent: false,
+    bodyPosePresent: false,
     headPresent: false,
     facePresent: false,
     lipsPresent: false,
@@ -38,11 +47,6 @@ class FramePresenceResult {
 }
 
 /// كاشف ومتحقق الحضور الصارم (SignPresenceValidator)
-///
-/// يفرض القاعدة الإلزامية:
-/// إذا لم يكن هناك: Head / Face detected AND at least one Hand detected
-/// يجب أن تكون الحالة: NO_SIGN
-/// ولا يتم تشغيل ترجمة أو إظهار كلمة أو إضافة Gloss حتى لو أعطى الموديل Class.
 class SignPresenceValidator {
   final double minHandConfidence;
   final double minHeadConfidence;
@@ -63,7 +67,7 @@ class SignPresenceValidator {
   int get consecutiveMissingHandFrames => _consecutiveMissingHandFrames;
   int get consecutiveMissingHeadFrames => _consecutiveMissingHeadFrames;
 
-  /// تقييم الحضور لإطار مفرد
+  /// تقييم الحضور لإطار مفرد مع الفصل الصارم بين الشخص واليد والشفتين
   FramePresenceResult evaluatePresence({
     List<List<double>>? rightHand,
     List<List<double>>? leftHand,
@@ -72,6 +76,10 @@ class SignPresenceValidator {
     double rightHandConfidence = 0.0,
     double leftHandConfidence = 0.0,
     double headConfidence = 0.0,
+    bool bodyPosePresent = false,
+    bool headPresentDirect = false,
+    bool facePresentDirect = false,
+    bool personPresentDirect = false,
   }) {
     final bool rightHandPresent = _isLandmarkGroupValid(rightHand, 21) &&
         rightHandConfidence >= minHandConfidence;
@@ -81,20 +89,28 @@ class SignPresenceValidator {
 
     final bool lipsPresent = _isLandmarkGroupValid(lips, 19);
 
-    // نقاط الرأس في MediaPipe Pose تشمل 0..10 (الأنف، العيون، الآذان، الشفاه)
-    // أو إذا كانت نقاط الشفاه أو الوجه متوفرة
-    bool headPresent = false;
+    // فحص موثوقية نقاط الجزء العلوي للجسم (Nose: 0, Left Shoulder: 11, Right Shoulder: 12)
+    bool resolvedBodyPose = bodyPosePresent;
+    if (body != null && body.length >= 13) {
+      final bool noseOk = !_isZeroPoint(body[0]);
+      final bool leftShoulderOk = !_isZeroPoint(body[11]);
+      final bool rightShoulderOk = !_isZeroPoint(body[12]);
+      if (noseOk || (leftShoulderOk && rightShoulderOk)) {
+        resolvedBodyPose = true;
+      }
+    }
+
+    bool headPresent = headPresentDirect;
     double resolvedHeadConf = headConfidence;
 
     if (body != null && body.length >= 11) {
-      // فحص نقاط الرأس (0: Nose, 1..6: Eyes, 7..8: Ears, 9..10: Mouth)
       int validHeadPoints = 0;
       for (int i = 0; i < 11; i++) {
         if (!_isZeroPoint(body[i])) {
           validHeadPoints++;
         }
       }
-      if (validHeadPoints >= 4) {
+      if (validHeadPoints >= 3) {
         headPresent = true;
         resolvedHeadConf = (validHeadPoints / 11.0);
       }
@@ -105,9 +121,18 @@ class SignPresenceValidator {
       headPresent = true;
     }
 
-    final bool facePresent = lipsPresent || headPresent;
+    final bool facePresent = facePresentDirect || lipsPresent || headPresent;
+
+    // 1. تعريف وجود الشخص:
+    // personPresent = bodyPosePresent OR headPresent OR facePresent
+    final bool personPresent = personPresentDirect ||
+        resolvedBodyPose ||
+        headPresent ||
+        facePresent;
 
     final result = FramePresenceResult(
+      personPresent: personPresent,
+      bodyPosePresent: resolvedBodyPose,
       headPresent: headPresent,
       facePresent: facePresent,
       lipsPresent: lipsPresent,
@@ -129,7 +154,7 @@ class SignPresenceValidator {
       if (!result.hasAtLeastOneHand) {
         _consecutiveMissingHandFrames++;
       }
-      if (!result.hasHeadOrFace) {
+      if (!result.personPresent) {
         _consecutiveMissingHeadFrames++;
       }
     }

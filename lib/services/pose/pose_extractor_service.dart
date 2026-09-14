@@ -12,7 +12,11 @@ class ExtractedPoseFrame {
   final List<List<double>>? lips;
   final List<List<double>>? body;
   final bool hasActiveDetection;
+  final bool personPresent;
+  final bool bodyPosePresent;
   final bool headPresent;
+  final bool facePresent;
+  final bool lipsPresent;
   final bool handPresent;
   final double rightHandConfidence;
   final double leftHandConfidence;
@@ -24,7 +28,11 @@ class ExtractedPoseFrame {
     this.lips,
     this.body,
     required this.hasActiveDetection,
+    this.personPresent = false,
+    this.bodyPosePresent = false,
     this.headPresent = false,
+    this.facePresent = false,
+    this.lipsPresent = false,
     this.handPresent = false,
     this.rightHandConfidence = 0.0,
     this.leftHandConfidence = 0.0,
@@ -82,10 +90,12 @@ class PoseExtractorService {
 
     _isProcessing = true;
     try {
-      // 1. كشف الرأس والوجه والشفاه من الصورة مباشرة (المتطلب 1 و 2)
+      // 1. كشف الرأس والوجه والجسم مع دعم كامل للتدوير
       final faceHeadResult = FaceHeadDetector.detectFromCameraImage(
         image,
+        sensorOrientation: sensorOrientation,
         isFrontCamera: isFrontCamera,
+        deviceOrientation: deviceOrientation,
       );
 
       // 2. كشف الأيدي عبر نموذج MediaPipe Hand
@@ -160,8 +170,12 @@ class PoseExtractorService {
       }
 
       final bool handPresent = rightHandPoints != null || leftHandPoints != null;
-      final bool headPresent = faceHeadResult.isDetected;
-      final bool hasActiveDetection = handPresent && headPresent;
+      final bool bodyPosePresent = faceHeadResult.bodyPosePresent;
+      final bool headPresent = faceHeadResult.headPresent;
+      final bool facePresent = faceHeadResult.facePresent;
+      final bool lipsPresent = faceHeadResult.lipsPresent;
+      final bool personPresent = bodyPosePresent || headPresent || facePresent;
+      final bool hasActiveDetection = handPresent && personPresent;
 
       return ExtractedPoseFrame(
         rightHand: rightHandPoints,
@@ -169,7 +183,11 @@ class PoseExtractorService {
         lips: faceHeadResult.lipKeypoints,
         body: faceHeadResult.headKeypoints,
         hasActiveDetection: hasActiveDetection,
+        personPresent: personPresent,
+        bodyPosePresent: bodyPosePresent,
         headPresent: headPresent,
+        facePresent: facePresent,
+        lipsPresent: lipsPresent,
         handPresent: handPresent,
         rightHandConfidence: rightHandConf,
         leftHandConfidence: leftHandConf,

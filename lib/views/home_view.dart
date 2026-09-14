@@ -1,5 +1,6 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:ishara/constants/app_constants.dart';
 import 'package:ishara/controllers/camera_controller.dart';
 import 'package:ishara/controllers/gloss_controller.dart';
@@ -50,10 +51,13 @@ class _HomeViewState extends State<HomeView> {
           CameraLensDirection.front;
       final sensorOrientation =
           cameraProvider.cameraController?.description.sensorOrientation;
+      final deviceOrientation = cameraProvider.cameraController?.value.deviceOrientation ??
+          DeviceOrientation.portraitUp;
       signRecognition.processFrame(
         image,
         sensorOrientation: sensorOrientation,
         isFrontCamera: isFront,
+        deviceOrientation: deviceOrientation,
       );
     }
 
@@ -530,19 +534,19 @@ class _HomeViewState extends State<HomeView> {
                       child: Column(
                         children: [
                           Icon(
-                            Icons.sign_language_outlined,
+                            _getInstructionIcon(state),
                             size: 44,
-                            color: Theme.of(context).colorScheme.outline,
+                            color: stateColor,
                           ),
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 12),
                           Text(
-                            state == SignTemporalState.signActive
-                                ? 'جارٍ تتبع الحركة كاملة (لا تترجم أثناء الحركة)...'
-                                : 'قف أمام الكاميرا وابدأ إشارتك بعد الاستقرار',
+                            _getInstructionText(state),
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontSize: 15,
-                              color: Theme.of(context).colorScheme.outline,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              height: 1.4,
+                              color: Theme.of(context).colorScheme.onSurface,
                             ),
                           ),
                         ],
@@ -599,6 +603,50 @@ class _HomeViewState extends State<HomeView> {
         );
       },
     );
+  }
+
+  String _getInstructionText(SignTemporalState state) {
+    switch (state) {
+      case SignTemporalState.waitingForPerson:
+        return 'بانتظار ظهور الشخص';
+      case SignTemporalState.waitingForHand:
+        return 'تم اكتشاف الشخص\nبانتظار ظهور اليد';
+      case SignTemporalState.ready:
+        return 'جاهز للإشارة';
+      case SignTemporalState.signStarting:
+      case SignTemporalState.signActive:
+      case SignTemporalState.signEnding:
+      case SignTemporalState.analyzing:
+        return 'جارٍ تحليل الإشارة...';
+      case SignTemporalState.confirmed:
+        return 'تم تأكيد الإشارة';
+      case SignTemporalState.candidate:
+        return 'جارٍ تقييم النتيجة...';
+      case SignTemporalState.cooldown:
+        return 'فترة استراحة بين الإشارات';
+    }
+  }
+
+  IconData _getInstructionIcon(SignTemporalState state) {
+    switch (state) {
+      case SignTemporalState.waitingForPerson:
+        return Icons.person_search_rounded;
+      case SignTemporalState.waitingForHand:
+        return Icons.front_hand_outlined;
+      case SignTemporalState.ready:
+        return Icons.check_circle_outline_rounded;
+      case SignTemporalState.signStarting:
+      case SignTemporalState.signActive:
+      case SignTemporalState.signEnding:
+      case SignTemporalState.analyzing:
+        return Icons.gesture_rounded;
+      case SignTemporalState.confirmed:
+        return Icons.task_alt_rounded;
+      case SignTemporalState.candidate:
+        return Icons.auto_awesome;
+      case SignTemporalState.cooldown:
+        return Icons.hourglass_empty_rounded;
+    }
   }
 }
 
