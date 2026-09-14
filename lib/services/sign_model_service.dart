@@ -1,4 +1,5 @@
 import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:ishara/constants/app_constants.dart';
 import 'package:ishara/models/landmarks_model.dart';
@@ -64,11 +65,15 @@ class SignModelService {
         options: options,
       );
       if (kDebugMode) {
-        debugPrint('[SignModelService] ✅ TFLite model loaded successfully: ${AppConstants.modelAssetPath}');
+        debugPrint(
+          '[SignModelService] ✅ TFLite model loaded successfully: ${AppConstants.modelAssetPath}',
+        );
       }
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('[SignModelService] ⚠️ TFLite load fallback to geometric matcher: $e');
+        debugPrint(
+          '[SignModelService] ⚠️ TFLite load fallback to geometric matcher: $e',
+        );
       }
       _interpreter = null;
     }
@@ -77,21 +82,31 @@ class SignModelService {
   }
 
   /// التنبؤ بالإشارة من معالم اليد الـ 21 مع الاستفادة من خصائص الحركة (Motion Features)
-  Future<SignPrediction?> predict(HandLandmarks landmarks, {MotionFeatures? motionFeatures}) async {
-    if (!_isModelLoaded || !landmarks.isValid || landmarks.landmarks.length < 21) {
+  Future<SignPrediction?> predict(
+    HandLandmarks landmarks, {
+    MotionFeatures? motionFeatures,
+  }) async {
+    if (!_isModelLoaded ||
+        !landmarks.isValid ||
+        landmarks.landmarks.length < 21) {
       return null;
     }
 
     // 1. تشغيل المصنف الهندسي والحركي المستقل عن الدوران
-    final geometricResult = _classifyGeometric(landmarks, motionFeatures: motionFeatures);
+    final geometricResult = _classifyGeometric(
+      landmarks,
+      motionFeatures: motionFeatures,
+    );
 
     // 2. محاولة تشغيل نموذج TFLite إذا كان متاحاً
     SignPrediction? finalResult = geometricResult;
     if (_interpreter != null) {
       try {
         final tfliteResult = _predictTflite(landmarks);
-        if (tfliteResult != null && WordOnlyFilter.isValidWord(tfliteResult.label)) {
-          if (geometricResult != null && geometricResult.label == tfliteResult.label) {
+        if (tfliteResult != null &&
+            WordOnlyFilter.isValidWord(tfliteResult.label)) {
+          if (geometricResult != null &&
+              geometricResult.label == tfliteResult.label) {
             finalResult = tfliteResult.copyWith(
               confidence: max(tfliteResult.confidence, 0.95),
               confidenceMargin: max(tfliteResult.confidenceMargin, 0.30),
@@ -101,7 +116,8 @@ class SignModelService {
           }
         }
       } catch (e) {
-        if (kDebugMode) debugPrint('[SignModelService] TFLite inference error: $e');
+        if (kDebugMode)
+          debugPrint('[SignModelService] TFLite inference error: $e');
       }
     }
 
@@ -114,7 +130,10 @@ class SignModelService {
   }
 
   /// تم إيقاف المصنف الهندسي الثابت تماماً تنفيذاً للمتطلبات الصارمة لمنع الانهيار وتكرار كلمات (شكراً / مساعدة / لا)
-  SignPrediction? _classifyGeometric(HandLandmarks landmarks, {MotionFeatures? motionFeatures}) {
+  SignPrediction? _classifyGeometric(
+    HandLandmarks landmarks, {
+    MotionFeatures? motionFeatures,
+  }) {
     // لا يوجد أي Fallback أو Hardcoded Rules هنا. الاعتماد الحصري على نموذج Ishara CSLR TFLite والمنظومة الزمنية.
     return null;
   }
@@ -127,7 +146,10 @@ class SignModelService {
     if (features.length != 89) return null;
 
     final input = [features];
-    final output = List.filled(1, List.filled(31, 0.0)).map((list) => List<double>.filled(31, 0.0)).toList();
+    final output = List.filled(
+      1,
+      List.filled(31, 0.0),
+    ).map((list) => List<double>.filled(31, 0.0)).toList();
 
     _interpreter!.run(input, output);
 
@@ -195,8 +217,15 @@ class SignModelService {
 
     // 2. 18 قيم متوسطة لمواقع المفاصل (means)
     final pairs = [
-      [0, 4], [0, 8], [0, 12], [0, 16], [0, 20],
-      [4, 8], [4, 12], [4, 16], [4, 20],
+      [0, 4],
+      [0, 8],
+      [0, 12],
+      [0, 16],
+      [0, 20],
+      [4, 8],
+      [4, 12],
+      [4, 16],
+      [4, 20],
     ];
     for (final p in pairs) {
       feat.add((lm[p[0]].x + lm[p[1]].x) / 2.0);
@@ -205,11 +234,20 @@ class SignModelService {
 
     // 3. 14 زوايا مفاصل
     final angleTriplets = [
-      [1, 2, 3], [2, 3, 4],
-      [0, 5, 6], [5, 6, 7], [6, 7, 8],
-      [0, 9, 10], [9, 10, 11], [10, 11, 12],
-      [0, 13, 14], [13, 14, 15], [14, 15, 16],
-      [0, 17, 18], [17, 18, 19], [18, 19, 20],
+      [1, 2, 3],
+      [2, 3, 4],
+      [0, 5, 6],
+      [5, 6, 7],
+      [6, 7, 8],
+      [0, 9, 10],
+      [9, 10, 11],
+      [10, 11, 12],
+      [0, 13, 14],
+      [13, 14, 15],
+      [14, 15, 16],
+      [0, 17, 18],
+      [17, 18, 19],
+      [18, 19, 20],
     ];
     for (final t in angleTriplets) {
       feat.add(_calcAngle(lm[t[0]], lm[t[1]], lm[t[2]]));
@@ -217,9 +255,21 @@ class SignModelService {
 
     // 4. 15 مسافات إقليدية
     final distPairs = [
-      [0, 4], [0, 8], [4, 8], [0, 12], [4, 12],
-      [0, 16], [4, 16], [0, 20], [4, 20],
-      [8, 12], [8, 16], [12, 16], [8, 20], [12, 20], [16, 20],
+      [0, 4],
+      [0, 8],
+      [4, 8],
+      [0, 12],
+      [4, 12],
+      [0, 16],
+      [4, 16],
+      [0, 20],
+      [4, 20],
+      [8, 12],
+      [8, 16],
+      [12, 16],
+      [8, 20],
+      [12, 20],
+      [16, 20],
     ];
     for (final p in distPairs) {
       feat.add(_dist(lm[p[0]], lm[p[1]]));
