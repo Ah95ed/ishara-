@@ -3,11 +3,50 @@ import 'package:ishara/models/landmarks_model.dart';
 /// IsharaKeypointMapper
 /// المسؤول الحصري عن ربط وترتيب نقاط MediaPipe بنقاط التدريب الـ 86 الدقيقة:
 ///
-/// الترتيب المعتمد في datasetv2.py ونوت بوك guide_isharah_pose_pkl_reader_visualizer:
-/// - [0..20]   : اليد اليمنى (Right Hand) - 21 نقطة
-/// - [21..41]  : اليد اليسرى (Left Hand)  - 21 نقطة
-/// - [42..60]  : الشفاه (Lips)            - 19 نقطة من الـ Outer Contour لـ Face Mesh
-/// - [61..85]  : الجزء العلوي للجسم (Upper Body) - 25 نقطة (مفاصل 0..24 من MediaPipe Pose)
+/// التوثيق الشامل والتفصيلي للفهارس (Exact 86 Keypoints Specification):
+/// ─────────────────────────────────────────────────────────────────────────────
+/// 1. اليد اليمنى (Right Hand) - [0..20] (21 نقطة MediaPipe Hand Landmark):
+///    0: Wrist (المعصم)
+///    1: Thumb CMC,  2: Thumb MCP,  3: Thumb IP,  4: Thumb Tip (طرف الإبهام)
+///    5: Index MCP,  6: Index PIP,  7: Index DIP, 8: Index Tip (طرف السبابة)
+///    9: Middle MCP, 10: Middle PIP, 11: Middle DIP, 12: Middle Tip (طرف الوسطى)
+///    13: Ring MCP,  14: Ring PIP,  15: Ring DIP, 16: Ring Tip (طرف البنصر)
+///    17: Pinky MCP, 18: Pinky PIP, 19: Pinky DIP, 20: Pinky Tip (طرف الخنصر)
+///
+/// 2. اليد اليسرى (Left Hand) - [21..41] (21 نقطة MediaPipe Hand Landmark):
+///    21: Wrist (المعصم الأيسر)
+///    22..25: Thumb (الإبهام الأيسر: CMC, MCP, IP, Tip)
+///    26..29: Index (السبابة اليسرى: MCP, PIP, DIP, Tip)
+///    30..33: Middle (الوسطى اليسرى: MCP, PIP, DIP, Tip)
+///    34..37: Ring (البنصر الأيسر: MCP, PIP, DIP, Tip)
+///    38..41: Pinky (الخنصر الأيسر: MCP, PIP, DIP, Tip)
+///
+/// 3. الشفاه (Face Mesh Outer Lips Contour) - [42..60] (19 نقطة):
+///    42: Mesh 0    (Top lip center)
+///    43: Mesh 17   (Bottom lip center)
+///    44..52: Mesh [37, 39, 40, 61, 84, 91, 146, 181, 185]
+///    53..60: Mesh [267, 269, 270, 291, 314, 321, 375, 405]
+///
+/// 4. الجزء العلوي للجسم والرأس (MediaPipe Pose Upper Body) - [61..85] (25 نقطة):
+///    61: 0 - Nose (الأنف / مركز الوجه والرأس)
+///    62..64: 1, 2, 3 - Left Eye (Inner, Center, Outer)
+///    65..67: 4, 5, 6 - Right Eye (Inner, Center, Outer)
+///    68: 7 - Left Ear (الأذن اليسرى)
+///    69: 8 - Right Ear (الأذن اليمنى)
+///    70: 9 - Mouth Left (زاوية الفم اليسرى)
+///    71: 10 - Mouth Right (زاوية الفم اليمنى)
+///    72: 11 - Left Shoulder (الكتف الأيسر)
+///    73: 12 - Right Shoulder (الكتف الأيمن)
+///    74: 13 - Left Elbow (المرفق الأيسر)
+///    75: 14 - Right Elbow (المرفق الأيمن)
+///    76: 15 - Left Wrist (المعصم الأيسر في هيكل الجسم)
+///    77: 16 - Right Wrist (المعصم الأيمن في هيكل الجسم)
+///    78: 17 - Left Pinky,  79: 18 - Right Pinky
+///    80: 19 - Left Index,  81: 20 - Right Index
+///    82: 21 - Left Thumb,  83: 22 - Right Thumb
+///    84: 23 - Left Hip (الورك الأيسر)
+///    85: 24 - Right Hip (الورك الأيمن)
+/// ─────────────────────────────────────────────────────────────────────────────
 class IsharaKeypointMapper {
   static const int numRightHand = 21;
   static const int numLeftHand = 21;
@@ -16,16 +55,12 @@ class IsharaKeypointMapper {
   static const int totalKeypoints = 86;
 
   /// معرّفات نقاط الشفاه الخارجية المستخرجة من MediaPipe Face Mesh:
-  /// lipsUpperOuter = [61, 185, 40, 39, 37, 0, 267, 269, 270, 291]
-  /// lipsLowerOuter = [146, 91, 181, 84, 17, 314, 405, 321, 375, 291]
-  /// مرتبة وبدون تكرار:
   static const List<int> lipMeshIndices = [
     0, 17, 37, 39, 40, 61, 84, 91, 146, 181,
     185, 267, 269, 270, 291, 314, 321, 375, 405
   ];
 
   /// معرّفات نقاط الجسم العلوي الـ 25 من MediaPipe Pose:
-  /// 0..24 تشمل: الرأس والعيون والأذنين والأنف، الكتفين، المرفقين، المعصمين، والوركين
   static const List<int> upperBodyIndices = [
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
     11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
@@ -33,7 +68,6 @@ class IsharaKeypointMapper {
   ];
 
   /// تحويل كائنات المعالم إلى مصفوفة [86][2] خام قبل التطبيع
-  /// مع دعم دقيق لليد اليمنى واليسرى والكاميرا الأمامية/الخلفية
   static List<List<double>> mapTo86Keypoints({
     List<HandLandmark>? rightHand,
     List<HandLandmark>? leftHand,
@@ -68,23 +102,12 @@ class IsharaKeypointMapper {
       }
     }
 
-    // 4. خريطة الجسم العلوي [61..85] (25 نقطة)
+    // 4. خريطة الجسم العلوي والرأس [61..85] (25 نقطة)
     final int bodyOffset = lipsOffset + numLips; // 61
     if (bodyPoints != null && bodyPoints.length >= numBody) {
       for (int i = 0; i < numBody; i++) {
         frame[bodyOffset + i][0] = bodyPoints[i][0];
         frame[bodyOffset + i][1] = bodyPoints[i][1];
-      }
-    } else if (rightHand != null || leftHand != null) {
-      // تقدير موضعي مبدئي لمفصلي المعصمين في الجسم في حال غياب Pose كامل
-      // نقطة 15 (معصم أيسر) ونقطة 16 (معصم أيمن) في MediaPipe Pose
-      if (leftHand != null && leftHand.isNotEmpty) {
-        frame[bodyOffset + 15][0] = leftHand[0].x;
-        frame[bodyOffset + 15][1] = leftHand[0].y;
-      }
-      if (rightHand != null && rightHand.isNotEmpty) {
-        frame[bodyOffset + 16][0] = rightHand[0].x;
-        frame[bodyOffset + 16][1] = rightHand[0].y;
       }
     }
 

@@ -5,6 +5,7 @@ import 'package:ishara/controllers/camera_controller.dart';
 import 'package:ishara/controllers/gloss_controller.dart';
 import 'package:ishara/controllers/sign_controller.dart';
 import 'package:ishara/providers/sign_recognition_provider.dart';
+import 'package:ishara/services/pose/sign_state_machine.dart';
 import 'package:ishara/services/temporal_stabilizer.dart';
 import 'package:ishara/views/widgets/camera_preview_widget.dart';
 import 'package:ishara/views/widgets/hand_landmarks_debug_panel.dart';
@@ -291,20 +292,40 @@ class _HomeViewState extends State<HomeView> {
   }
 
   Widget _buildTranslationSection(BuildContext context) {
-    return Consumer3<SignRecognitionProvider, GlossController, CameraProvider>(
-      builder: (context, signRecognition, glossController, cameraProvider, _) {
-        // الأولوية لنموذج Ishara CSLR Transformer المباشر
-        final activeGloss = signRecognition.currentGloss;
-        final hasRecognitionGloss = activeGloss != null && activeGloss.isNotEmpty;
+    return Consumer2<SignRecognitionProvider, GlossController>(
+      builder: (context, signRecognition, glossController, _) {
+        final confirmedGloss = signRecognition.currentGloss;
+        final isAnalyzing = signRecognition.isAnalyzing;
+        final hasContent = confirmedGloss != null && confirmedGloss.isNotEmpty;
+        final state = signRecognition.state;
 
-        final displayText = hasRecognitionGloss
-            ? activeGloss
-            : glossController.displayText;
-        final hasContent = hasRecognitionGloss || glossController.hasContent;
-        final hasSentence = !hasRecognitionGloss && glossController.hasSentence;
-        final isGenerating = glossController.isGenerating;
-        final isHandDetected = cameraProvider.isRealHand;
-        final stateColor = _getStateColor(context, glossController.stabilityState);
+        Color stateColor;
+        switch (state) {
+          case SignTemporalState.waitingForPerson:
+          case SignTemporalState.waitingForHand:
+            stateColor = Colors.grey;
+            break;
+          case SignTemporalState.ready:
+            stateColor = Colors.teal;
+            break;
+          case SignTemporalState.signStarting:
+          case SignTemporalState.signActive:
+            stateColor = Colors.blue;
+            break;
+          case SignTemporalState.signEnding:
+          case SignTemporalState.analyzing:
+            stateColor = Colors.amber;
+            break;
+          case SignTemporalState.candidate:
+            stateColor = Colors.orange;
+            break;
+          case SignTemporalState.confirmed:
+            stateColor = Colors.green;
+            break;
+          case SignTemporalState.cooldown:
+            stateColor = Colors.purple;
+            break;
+        }
 
         return Card(
           elevation: 2,
@@ -343,18 +364,16 @@ class _HomeViewState extends State<HomeView> {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        // شارة النموذج المباشر
+                        // شارة حالة دورة حياة الإشارة (Sign Temporal State)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
                             color: stateColor.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(color: stateColor.withValues(alpha: 0.5)),
                           ),
                           child: Text(
-                            hasRecognitionGloss
-                                ? 'إشارة معتمدة'
-                                : glossController.stabilityState.arabicLabel,
+                            state.arabicLabel,
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
@@ -364,7 +383,7 @@ class _HomeViewState extends State<HomeView> {
                         ),
                       ],
                     ),
-                    if (isGenerating)
+                    if (isAnalyzing)
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 12,
@@ -388,7 +407,7 @@ class _HomeViewState extends State<HomeView> {
                             ),
                             SizedBox(width: 6),
                             Text(
-                              'جارٍ المعالجة...',
+                              'جارٍ تحليل الإشارة...',
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
@@ -402,7 +421,7 @@ class _HomeViewState extends State<HomeView> {
                 ),
                 const Divider(height: 24),
 
-                // ── عرض الإشارة المترجمة النظيفة دون أرقام أو CTC IDs ──
+                // ── عرض الإشارة المترجمة المؤكدة (المتطلب 31: 28-34sp) ──
                 if (hasContent) ...[
                   Container(
                     width: double.infinity,
@@ -411,34 +430,44 @@ class _HomeViewState extends State<HomeView> {
                       color: Theme.of(context).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(
-                        color: hasRecognitionGloss
-                            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.5)
-                            : Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.6),
-                        width: hasRecognitionGloss ? 1.8 : 1.0,
+                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
+                        width: 1.8,
                       ),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          hasRecognitionGloss
-                              ? 'الكلمة / الإشارة المكتشفة:'
-                              : (hasSentence ? 'الجملة المصاغة:' : 'تجميع الإشارات:'),
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'الإشارة المعتمدة:',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                            if (signRecognition.confidence != null)
+                              Text(
+                                'الثقة: ${(signRecognition.confidence! * 100).toStringAsFixed(0)}%',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                              ),
+                          ],
                         ),
                         const SizedBox(height: 10),
                         Center(
                           child: Text(
-                            displayText!,
+                            confirmedGloss,
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontSize: 28,
+                              fontSize: 32, // المتطلب 31: 28-34sp
                               fontWeight: FontWeight.bold,
-                              height: 1.4,
+                              height: 1.3,
                               letterSpacing: 0.3,
                               color: Theme.of(context).colorScheme.onSurface,
                             ),
@@ -448,68 +477,72 @@ class _HomeViewState extends State<HomeView> {
                           const SizedBox(height: 14),
                           const Divider(height: 1),
                           const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 6,
-                            children: signRecognition.currentGlossSequence.map((g) {
-                              return Chip(
-                                label: Text(g, style: const TextStyle(fontSize: 12)),
-                                visualDensity: VisualDensity.compact,
-                              );
-                            }).toList(),
+                          Row(
+                            children: [
+                              const Icon(Icons.history, size: 16, color: Colors.grey),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  // المتطلب 31: الـ Glosses أصغر 14-17sp مثل "اريد • مساعدة"
+                                  signRecognition.currentGlossSequence.join(' • '),
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ],
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      FilledButton.tonalIcon(
-                        onPressed: () {
-                          context.read<SignProvider>().speakText(displayText);
-                        },
-                        icon: const Icon(Icons.volume_up_rounded, size: 20),
-                        label: const Text('نطق'),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton.filledTonal(
-                        onPressed: () {
-                          signRecognition.clearPrediction();
-                          glossController.clearAll();
-                        },
-                        icon: const Icon(Icons.refresh_rounded, size: 18),
-                        tooltip: 'مسح',
-                      ),
-                    ],
+                ] else if (isAnalyzing) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                    ),
+                    child: const Column(
+                      children: [
+                        CircularProgressIndicator(strokeWidth: 2.5, color: Colors.amber),
+                        SizedBox(height: 14),
+                        Text(
+                          'جارٍ تحليل الإشارة عبر النموذج الزمني...',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
                   ),
                 ] else ...[
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 28),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 30),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
                     child: Center(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      child: Column(
                         children: [
-                          if (isHandDetected) ...[
-                            SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.2,
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                          ],
+                          Icon(
+                            Icons.sign_language_outlined,
+                            size: 44,
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                          const SizedBox(height: 10),
                           Text(
-                            isHandDetected ? 'جارٍ قراءة الإشارة...' : 'في انتظار الإشارة...',
+                            state == SignTemporalState.signActive
+                                ? 'جارٍ تتبع الحركة كاملة (لا تترجم أثناء الحركة)...'
+                                : 'قف أمام الكاميرا وابدأ إشارتك بعد الاستقرار',
+                            textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontSize: 17,
-                              color: isHandDetected
-                                  ? Theme.of(context).colorScheme.primary
-                                  : Colors.grey,
-                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                              color: Theme.of(context).colorScheme.outline,
                             ),
                           ),
                         ],
@@ -517,6 +550,21 @@ class _HomeViewState extends State<HomeView> {
                     ),
                   ),
                 ],
+                const SizedBox(height: 14),
+
+                // أزرار التحكم
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () {
+                        signRecognition.clearPrediction();
+                      },
+                      icon: const Icon(Icons.clear_all_rounded, size: 20),
+                      label: const Text('مسح'),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -551,21 +599,6 @@ class _HomeViewState extends State<HomeView> {
         );
       },
     );
-  }
-
-  Color _getStateColor(BuildContext context, SignStabilityState state) {
-    switch (state) {
-      case SignStabilityState.idle:
-        return Colors.grey;
-      case SignStabilityState.signing:
-        return Colors.blue;
-      case SignStabilityState.candidateStable:
-        return Colors.orange;
-      case SignStabilityState.committed:
-        return Colors.green;
-      case SignStabilityState.cooldown:
-        return Colors.purple;
-    }
   }
 }
 

@@ -1,57 +1,98 @@
+import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:ishara/models/sign_segment.dart';
 import 'package:ishara/services/pose/pose_extractor_service.dart';
 import 'package:ishara/services/pose/pose_preprocessor.dart';
+import 'package:ishara/services/pose/sign_presence_validator.dart';
+import 'package:ishara/services/pose/sign_state_machine.dart';
+import 'package:ishara/services/pose/temporal_motion_analyzer.dart';
 import 'package:ishara/services/tflite/ctc_greedy_decoder.dart';
 import 'package:ishara/services/tflite/frame_buffer.dart';
 import 'package:ishara/services/tflite/ishara_recognition_service.dart';
 import 'package:ishara/services/tflite/ishara_vocab_service.dart';
-import 'package:ishara/services/tflite/prediction_stabilizer.dart';
+import 'package:ishara/services/word_only_filter.dart';
 
 /// مزود الحالة الرئيسي لتمييز لغة الإشارة العربية (SignRecognitionProvider)
-/// يدير نموذج TFLite، مفكك شفرة CTC، مخزن الـ 128 إطار، والمعالجة المسبقة.
+/// ينسق بين:
+/// 1. التحقق الصارم من الحضور (SignPresenceValidator)
+/// 2. محلل الحركة الزمني وطاقة الحركة مع Pre-roll (TemporalMotionAnalyzer)
+/// 3. آلة الحالة الزمنية لتقطيع الإشارة (SignStateMachine)
+/// 4. نموذج CSLR Transformer (ishara_model.tflite) وفك تشفير CTC والتحقق المزدوج (A & B)
+/// 5. طبقة الرفض وقمع التكرار
 class SignRecognitionProvider extends ChangeNotifier {
   final IsharaRecognitionService _modelService;
   final IsharaVocabService _vocabService;
   final PosePreprocessor _preprocessor;
-  final FrameBuffer _frameBuffer;
   final PoseExtractorService _poseExtractor;
-  final PredictionStabilizer _stabilizer;
+  final SignPresenceValidator _presenceValidator;
+  final TemporalMotionAnalyzer _motionAnalyzer;
+  final SignStateMachine _stateMachine;
   late final CtcGreedyDecoder _ctcDecoder;
 
   bool _isModelLoaded = false;
   bool _isRecognizing = false;
   bool _isInferenceRunning = false;
   String? _currentGloss;
-  List<String> _currentGlossSequence = [];
+  final List<String> _currentGlossSequence = [];
   double? _confidence;
   String? _error;
+
+  // تشخيصات المطور ومؤشرات الوقت الحقيقي
+  FramePresenceResult _lastPresence = FramePresenceResult.empty;
+  TemporalMotionResult _lastMotion = TemporalMotionResult.zero;
+  List<RawClassEntry> _lastTop10 = [];
+  String? _lastCandidateWord;
+  double _lastValidHandRatio = 0.0;
+  double _lastValidHeadRatio = 0.0;
+  String _rejectionReason = 'NONE';
 
   SignRecognitionProvider({
     IsharaRecognitionService? modelService,
     IsharaVocabService? vocabService,
     PosePreprocessor? preprocessor,
-    FrameBuffer? frameBuffer,
     PoseExtractorService? poseExtractor,
-    PredictionStabilizer? stabilizer,
+    SignPresenceValidator? presenceValidator,
+    TemporalMotionAnalyzer? motionAnalyzer,
+    SignStateMachine? stateMachine,
   })  : _modelService = modelService ?? IsharaRecognitionService(),
         _vocabService = vocabService ?? IsharaVocabService(),
         _preprocessor = preprocessor ?? PosePreprocessor(),
-        _frameBuffer = frameBuffer ?? FrameBuffer(inferenceStride: 8, minActiveRatio: 0.30),
         _poseExtractor = poseExtractor ?? PoseExtractorService(),
-        _stabilizer = stabilizer ?? PredictionStabilizer() {
+        _presenceValidator = presenceValidator ?? SignPresenceValidator(),
+        _motionAnalyzer = motionAnalyzer ?? TemporalMotionAnalyzer(),
+        _stateMachine = stateMachine ?? SignStateMachine() {
     _ctcDecoder = CtcGreedyDecoder(vocabService: _vocabService);
+    _stateMachine.addListener(_onStateMachineChanged);
   }
 
-  // Getters المطلوبة للمستخدم والواجهة
+  // ────────────────────────────────── Getters ──────────────────────────────────
   bool get isModelLoaded => _isModelLoaded;
   bool get isRecognizing => _isRecognizing;
   String? get currentGloss => _currentGloss;
   List<String> get currentGlossSequence => List.unmodifiable(_currentGlossSequence);
   double? get confidence => _confidence;
   String? get error => _error;
-  double get bufferFillRatio => _frameBuffer.count / FrameBuffer.requiredFrames;
+  SignTemporalState get state => _stateMachine.state;
+  bool get isAnalyzing => _stateMachine.state == SignTemporalState.analyzing;
+
+  // Getters للمتطلب 30 (Debug Overlay)
+  bool get headPresent => _lastPresence.hasHeadOrFace;
+  bool get handPresent => _lastPresence.hasAtLeastOneHand;
+  bool get facePresent => _lastPresence.facePresent;
+  bool get lipsPresent => _lastPresence.lipsPresent;
+  double get motionEnergy => _lastMotion.motionEnergy;
+  int get activeFramesCount => _stateMachine.activeFramesCount;
+  double get validHandRatio => _lastValidHandRatio;
+  double get validHeadRatio => _lastValidHeadRatio;
+  String? get candidateWord => _lastCandidateWord;
+  List<RawClassEntry> get top10Classes => List.unmodifiable(_lastTop10);
+  String get rejectionReason => _rejectionReason;
+
+  void _onStateMachineChanged() {
+    notifyListeners();
+  }
 
   /// تهيئة النموذج والمفردات ومحرك الكشف
   Future<bool> initialize() async {
@@ -59,7 +100,6 @@ class SignRecognitionProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // 1. تحميل المفردات
       final vocabOk = await _vocabService.loadVocab();
       if (!vocabOk) {
         _error = 'فشل تحميل قاموس المفردات (ishara_vocab.json)';
@@ -67,7 +107,6 @@ class SignRecognitionProvider extends ChangeNotifier {
         return false;
       }
 
-      // 2. تحميل نموذج TFLite والتحقق من أبعاد الدخل [1, 128, 86, 2] والخرج [1, 29, 684]
       final modelOk = await _modelService.loadModel();
       if (!modelOk) {
         _error = 'فشل تحميل نموذج لغة الإشارة (ishara_model.tflite)';
@@ -75,7 +114,6 @@ class SignRecognitionProvider extends ChangeNotifier {
         return false;
       }
 
-      // 3. تهيئة مستخرج المعالم من الكاميرا
       await _poseExtractor.initialize();
 
       _isModelLoaded = true;
@@ -98,33 +136,37 @@ class SignRecognitionProvider extends ChangeNotifier {
       return;
     }
     _isRecognizing = true;
-    _frameBuffer.clear();
+    _stateMachine.reset();
+    _motionAnalyzer.reset();
     _preprocessor.reset();
-    _stabilizer.clear();
+    _presenceValidator.reset();
     _currentGloss = null;
     _currentGlossSequence.clear();
     _confidence = null;
     _error = null;
+    _lastCandidateWord = null;
+    _rejectionReason = 'NONE';
     notifyListeners();
   }
 
   /// إيقاف التعرف مؤقتاً
   void stopRecognition() {
     _isRecognizing = false;
-    _frameBuffer.clear();
+    _stateMachine.reset();
+    _motionAnalyzer.reset();
     _preprocessor.reset();
-    _stabilizer.clear();
+    _presenceValidator.reset();
     notifyListeners();
   }
 
-  /// معالجة إطار الكاميرا الوارد
+  /// معالجة إطار الكاميرا الوارد (Camera Frame Pipeline)
   Future<void> processFrame(
     CameraImage image, {
     int? sensorOrientation,
     bool isFrontCamera = false,
     DeviceOrientation deviceOrientation = DeviceOrientation.portraitUp,
   }) async {
-    if (!_isModelLoaded || !_isRecognizing || _isInferenceRunning) return;
+    if (!_isModelLoaded || !_isRecognizing) return;
 
     try {
       // 1. استخراج معالم الأيدي والوضعيات من الكاميرا
@@ -135,7 +177,19 @@ class SignRecognitionProvider extends ChangeNotifier {
         deviceOrientation: deviceOrientation,
       );
 
-      // 2. تطبيق المعالجة المسبقة والتطبيع الصارم المطابق لـ datasetv2.py
+      // 2. تقييم الحضور الصارم (المتطلب 1 و 2: Head/Face + at least one Hand)
+      final presence = _presenceValidator.evaluatePresence(
+        rightHand: extracted.rightHand,
+        leftHand: extracted.leftHand,
+        lips: extracted.lips,
+        body: extracted.body,
+        rightHandConfidence: extracted.rightHandConfidence,
+        leftHandConfidence: extracted.leftHandConfidence,
+        headConfidence: extracted.headConfidence,
+      );
+      _lastPresence = presence;
+
+      // 3. تطبيق المعالجة المسبقة والتطبيع الصارم المطابق لـ datasetv2.py
       final frame86x2 = _preprocessor.processFrame(
         rawRightHand: extracted.rightHand,
         rawLeftHand: extracted.leftHand,
@@ -143,28 +197,39 @@ class SignRecognitionProvider extends ChangeNotifier {
         rawBody: extracted.body,
       );
 
-      // 3. حفظ الإطار في المخزن الزمني
-      _frameBuffer.addFrame(
-        frame86x2,
-        hasActivePerson: extracted.hasActiveDetection,
+      // 4. تحليل الحركة الزمنية وحساب طاقة الحركة الموزونة (المتطلب 5 و 6)
+      final motion = _motionAnalyzer.analyzeFrame(
+        rightHand: extracted.rightHand,
+        leftHand: extracted.leftHand,
+        lips: extracted.lips,
+        body: extracted.body,
       );
+      _lastMotion = motion;
 
-      // 4. فحص ما إذا كان هناك نشاط حقيقي أو يجب مسح التنبؤ الشبح
-      if (!extracted.hasActiveDetection && !_frameBuffer.hasValidSignActivity) {
-        if (_currentGloss != null) {
-          _stabilizer.onSignEnded();
-          _currentGloss = null;
-          notifyListeners();
-        }
-        return;
+      // 5. حفظ إطارات الـ Pre-roll أثناء حالة الاستعداد (READY أو COOLDOWN)
+      if (presence.isSignEligible &&
+          (_stateMachine.state == SignTemporalState.ready ||
+              _stateMachine.state == SignTemporalState.cooldown)) {
+        _motionAnalyzer.recordPreRollFrame(frame86x2);
       }
 
-      // 5. فحص ما إذا حان موعد تشغيل الاستنتاج عبر النافذة الانزلاقية
-      if (_frameBuffer.shouldTriggerInference() && _frameBuffer.hasValidSignActivity) {
-        final frames = _frameBuffer.getFrames();
-        if (frames != null) {
-          _frameBuffer.markInferenceExecuted();
-          _executeInference(frames);
+      // 6. تشغيل آلة الحالة الزمنية (المتطلب 4 و 7 و 8 و 9)
+      final stateBefore = _stateMachine.state;
+      _stateMachine.processFrame(
+        presence: presence,
+        motion: motion,
+        frame86x2: frame86x2,
+        preRollFrames: _motionAnalyzer.preRollFrames,
+      );
+
+      // 7. إذا انتقلت الحالة إلى ANALYZING ➔ تشغيل الاستنتاج وتحليل الشريحة المكتملة
+      if (_stateMachine.state == SignTemporalState.analyzing &&
+          stateBefore != SignTemporalState.analyzing) {
+        final segment = _stateMachine.completedSegment;
+        if (segment != null && !_isInferenceRunning) {
+          _lastValidHandRatio = segment.validHandRatio;
+          _lastValidHeadRatio = segment.validHeadRatio;
+          _analyzeCompletedSegment(segment);
         }
       }
     } catch (e) {
@@ -172,65 +237,149 @@ class SignRecognitionProvider extends ChangeNotifier {
     }
   }
 
-  /// تنفيذ الاستنتاج وفك التشفير في خلفية سريعة دون تجميد واجهة المستخدم
-  void _executeInference(List<List<List<double>>> frames128x86x2) {
-    if (_isInferenceRunning) return;
+  /// تحليل الشريحة المكتملة عبر نموذج TFLite مع التحقق المزدوج وطبقة الرفض (المتطلب 16 و 19)
+  Future<void> _analyzeCompletedSegment(SignSegment segment) async {
     _isInferenceRunning = true;
 
     try {
-      // تشغيل الموديل للحصول على مصفوفة الـ Logits [29, 684]
-      final logits29x684 = _modelService.runInference(frames128x86x2);
+      // ──────────────── نافذة A: الشريحة الكاملة مع أخذ العينات الزمنية ────────────────
+      final windowA = FrameBuffer.padOrResampleTo128(segment.frames);
+      final logitsA = _modelService.runInference(windowA);
 
-      if (logits29x684 != null) {
-        // فك التشفير عبر CTC Greedy Decoder
-        final decoded = _ctcDecoder.decodeLogits(logits29x684);
+      if (logitsA == null) {
+        _rejectAndReset('فشل تشغيل نموذج الاستنتاج');
+        return;
+      }
 
-        if (decoded.isNotEmpty) {
-          final candidate = decoded.glosses.join(' ');
-          final conf = decoded.averageConfidence;
+      // تحليل Logits النافذة A وحساب Top-10 و Blank Ratio
+      final analysisA = _modelService.analyzeLogits(
+        logitsA,
+        vocabService: _vocabService,
+      );
+      _lastTop10 = analysisA.top10Classes;
 
-          // تمرير النتيجة إلى مثبت التنبؤات لمنع التكرار والنتائج الوهمية
-          final stableGloss = _stabilizer.processPrediction(
-            candidateGloss: candidate,
-            confidence: conf,
-            isSignActive: true,
-          );
+      // المتطلب 18: إذا كانت النتيجة يسيطر عليها الـ Blank تماماً ➔ NO_SIGN طبيعي
+      if (analysisA.isBlankDominant) {
+        _rejectAndReset('سيطرة Blank على التسلسل (حركة غير إشارية)');
+        return;
+      }
 
-          if (stableGloss != null && stableGloss.isNotEmpty) {
-            _currentGloss = stableGloss;
-            _currentGlossSequence = List.from(_stabilizer.glossSequence);
-            _confidence = conf;
-            notifyListeners();
-          }
+      // فك التشفير عبر CTC Decoder للنافذة A
+      final decodedA = _ctcDecoder.decodeLogits(logitsA);
+      if (decodedA.isEmpty) {
+        _rejectAndReset('تسلسل CTC فارغ');
+        return;
+      }
+
+      final candidateA = decodedA.glosses.join(' ').trim();
+      final double confA = decodedA.averageConfidence;
+      _lastCandidateWord = candidateA;
+      _stateMachine.markCandidate(candidateA, confA);
+
+      // ──────────────── طبقة الرفض المبدئي (Rejection Layer) ────────────────
+      // 1. تصفية الحروف المنفردة (المتطلب 10 و 17)
+      if (!WordOnlyFilter.isValidWord(candidateA)) {
+        _rejectAndReset('حرف منفرد أو رمز غير مقبول: $candidateA');
+        return;
+      }
+
+      // 2. فحص الحد الأدنى لثقة التسلسل
+      if (confA < 0.40) {
+        _rejectAndReset('ثقة استنتاج ضعيفة: ${(confA * 100).toStringAsFixed(1)}%');
+        return;
+      }
+
+      // ──────────────── نافذة B: النافذة المتداخلة للتحقق الزمني المزدوج (المتطلب 16) ────────────────
+      final windowB = FrameBuffer.generateShiftedContextWindow(segment.frames);
+      final logitsB = _modelService.runInference(windowB);
+
+      String? candidateB;
+      double confB = 0.0;
+      if (logitsB != null) {
+        final decodedB = _ctcDecoder.decodeLogits(logitsB);
+        if (decodedB.isNotEmpty) {
+          candidateB = decodedB.glosses.join(' ').trim();
+          confB = decodedB.averageConfidence;
         }
       }
+
+      // التحقق من توافق Candidate A و Candidate B
+      final bool isTemporallyConsistent = candidateB != null &&
+          (candidateA == candidateB || candidateA.contains(candidateB) || candidateB.contains(candidateA));
+
+      if (!isTemporallyConsistent && candidateB != null && candidateB.isNotEmpty) {
+        // تعارض حاد بين النافذتين ➔ UNCERTAIN
+        _rejectAndReset('تعارض زمني غير مستقر بين النافذتين (A: $candidateA, B: $candidateB)');
+        return;
+      }
+
+      // ──────────────── قمع التكرار اللحظي (المتطلب 28) ────────────────
+      if (candidateA == _stateMachine.lastConfirmedWord) {
+        _rejectAndReset('قمع تكرار نفس الكلمة السابقة دون فاصل انتقال');
+        return;
+      }
+
+      // ──────────────── اعتماد الإشارة (CONFIRMED) ────────────────
+      final double finalConfidence = confB > 0 ? (confA * 0.6 + confB * 0.4) : confA;
+      _confirmSign(candidateA, finalConfidence);
     } catch (e) {
-      debugPrint('[SignRecognitionProvider] Inference error: $e');
+      debugPrint('[SignRecognitionProvider] Segment analysis error: $e');
+      _rejectAndReset('خطأ أثناء التحليل: $e');
     } finally {
       _isInferenceRunning = false;
     }
   }
 
-  /// مسح التنبؤات والذاكرة اللحظية
+  /// اعتماد الإشارة المؤكدة وتحديث الواجهة
+  void _confirmSign(String word, double finalConfidence) {
+    _currentGloss = word;
+    _confidence = finalConfidence;
+    _currentGlossSequence.add(word);
+    _rejectionReason = 'NONE';
+    _stateMachine.confirmSign(word);
+
+    // بدء فترة التهدئة لمنع التكرار الفوري
+    Future.delayed(const Duration(milliseconds: 600), () {
+      if (_stateMachine.state == SignTemporalState.confirmed) {
+        _stateMachine.startCooldown();
+      }
+    });
+
+    notifyListeners();
+  }
+
+  /// رفض المرشح والعودة لحالة الاستعداد
+  void _rejectAndReset(String reason) {
+    _rejectionReason = reason;
+    if (kDebugMode) {
+      debugPrint('[SignRecognitionProvider] ⚠️ Rejected: $reason');
+    }
+    _stateMachine.startCooldown();
+    notifyListeners();
+  }
+
+  /// مسح التسلسل وسجل التنبؤات
   void clearPrediction() {
     _currentGloss = null;
     _currentGlossSequence.clear();
     _confidence = null;
-    _stabilizer.clear();
-    _frameBuffer.clear();
+    _lastCandidateWord = null;
+    _lastTop10.clear();
+    _rejectionReason = 'NONE';
+    _stateMachine.reset();
+    _motionAnalyzer.reset();
     _preprocessor.reset();
     notifyListeners();
   }
 
   @override
   void dispose() {
+    _stateMachine.removeListener(_onStateMachineChanged);
     stopRecognition();
     _modelService.dispose();
     _poseExtractor.dispose();
     _vocabService.clear();
-    _frameBuffer.clear();
-    _preprocessor.reset();
-    _stabilizer.clear();
+    _stateMachine.dispose();
     super.dispose();
   }
 }
