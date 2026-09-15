@@ -1,8 +1,10 @@
 import 'dart:io';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:hand_detection/hand_detection.dart' as hd;
+import 'package:ishara/services/person_presence_service.dart';
 import 'package:ishara/services/pose/face_head_detector.dart';
 
 /// نتيجة استخراج المعالم من إطار الكاميرا مع مؤشرات الحضور والثقة
@@ -49,6 +51,7 @@ class PoseExtractorService {
   static const int _maxDim = 640;
 
   hd.HandDetector? _handDetector;
+  final PersonPresenceService _personPresenceService = PersonPresenceService();
   bool _isInitialized = false;
   bool _isProcessing = false;
 
@@ -67,12 +70,20 @@ class PoseExtractorService {
         enableTracking: true,
         performanceConfig: hd.PerformanceConfig.xnnpack(numThreads: 2),
       );
+      await _personPresenceService.initialize();
       _isInitialized = true;
-      debugPrint('[PoseExtractorService] ✅ Hand detector initialized successfully');
+      debugPrint(
+        '[PoseExtractorService] ✅ Hand detector initialized successfully',
+      );
+      debugPrint(
+        '[PoseExtractorService] ✅ ML Kit pose detector initialized successfully',
+      );
       return true;
     } catch (e) {
       _isInitialized = false;
-      debugPrint('[PoseExtractorService] ❌ Failed to initialize hand detector: $e');
+      debugPrint(
+        '[PoseExtractorService] ❌ Failed to initialize hand detector: $e',
+      );
       return false;
     }
   }
@@ -169,12 +180,19 @@ class PoseExtractorService {
         }
       }
 
-      final bool handPresent = rightHandPoints != null || leftHandPoints != null;
-      final bool bodyPosePresent = faceHeadResult.bodyPosePresent;
+      final bool handPresent =
+          rightHandPoints != null || leftHandPoints != null;
+      final personCheck = await _personPresenceService.detectFromCameraImage(
+        image,
+        sensorOrientation: sensorOrientation,
+        isFrontCamera: isFrontCamera,
+        deviceOrientation: deviceOrientation,
+      );
+      final bool bodyPosePresent = personCheck.personPresent;
       final bool headPresent = faceHeadResult.headPresent;
       final bool facePresent = faceHeadResult.facePresent;
       final bool lipsPresent = faceHeadResult.lipsPresent;
-      final bool personPresent = bodyPosePresent || headPresent || facePresent;
+      final bool personPresent = bodyPosePresent;
       final bool hasActiveDetection = handPresent && personPresent;
 
       return ExtractedPoseFrame(
@@ -209,6 +227,7 @@ class PoseExtractorService {
     try {
       await _handDetector?.dispose();
     } catch (_) {}
+    await _personPresenceService.dispose();
     _handDetector = null;
     _isInitialized = false;
   }

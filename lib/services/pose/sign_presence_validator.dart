@@ -81,10 +81,12 @@ class SignPresenceValidator {
     bool facePresentDirect = false,
     bool personPresentDirect = false,
   }) {
-    final bool rightHandPresent = _isLandmarkGroupValid(rightHand, 21) &&
+    final bool rightHandPresent =
+        _isLandmarkGroupValid(rightHand, 21) &&
         rightHandConfidence >= minHandConfidence;
 
-    final bool leftHandPresent = _isLandmarkGroupValid(leftHand, 21) &&
+    final bool leftHandPresent =
+        _isLandmarkGroupValid(leftHand, 21) &&
         leftHandConfidence >= minHandConfidence;
 
     final bool lipsPresent = _isLandmarkGroupValid(lips, 19);
@@ -124,11 +126,9 @@ class SignPresenceValidator {
     final bool facePresent = facePresentDirect || lipsPresent || headPresent;
 
     // 1. تعريف وجود الشخص:
-    // personPresent = bodyPosePresent OR headPresent OR facePresent
-    final bool personPresent = personPresentDirect ||
-        resolvedBodyPose ||
-        headPresent ||
-        facePresent;
+    // personPresent MUST be based on body pose only.
+    // Face/head landmarks are informative but not a person detector.
+    final bool personPresent = personPresentDirect || resolvedBodyPose;
 
     final result = FramePresenceResult(
       personPresent: personPresent,
@@ -138,7 +138,8 @@ class SignPresenceValidator {
       lipsPresent: lipsPresent,
       leftHandPresent: leftHandPresent,
       rightHandPresent: rightHandPresent,
-      handConfidence: (rightHandPresent ? rightHandConfidence : 0.0) >
+      handConfidence:
+          (rightHandPresent ? rightHandConfidence : 0.0) >
               (leftHandPresent ? leftHandConfidence : 0.0)
           ? rightHandConfidence
           : leftHandConfidence,
@@ -169,7 +170,10 @@ class SignPresenceValidator {
     _consecutiveMissingHeadFrames = 0;
   }
 
-  static bool _isLandmarkGroupValid(List<List<double>>? points, int expectedCount) {
+  static bool _isLandmarkGroupValid(
+    List<List<double>>? points,
+    int expectedCount,
+  ) {
     if (points == null || points.length < expectedCount) return false;
     int nonZero = 0;
     for (int i = 0; i < expectedCount; i++) {
