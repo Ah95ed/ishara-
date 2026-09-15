@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:ishara/services/pose/person_presence_detector.dart';
 import 'package:ishara/services/pose/sign_presence_validator.dart';
 import 'package:ishara/services/pose/sign_state_machine.dart';
 import 'package:ishara/services/pose/temporal_motion_analyzer.dart';
@@ -53,6 +54,70 @@ void main() {
   List<List<double>> createLips(double x, double y) =>
       List.generate(19, (i) => [x + (i * 0.002), y + (i * 0.002)]);
   List<List<double>> create86() => List.generate(86, (_) => [0.5, 0.5]);
+
+  // ──────────────────────────────── TEST PERSON PRESENCE STABILITY ────────────────────────────────
+  print(
+    '\n[TEST PERSON PRESENCE] Body pose drives PERSON; face alone does not:',
+  );
+  final detector = PersonPresenceDetector(personLostFrameThreshold: 2);
+
+  final faceOnlyState = detector.updatePresence(
+    bodyPosePresent: false,
+    headPresent: true,
+    facePresent: true,
+    lipsPresent: true,
+    leftHandPresent: false,
+    rightHandPresent: false,
+  );
+  assertTrue(
+    !faceOnlyState.personPresent,
+    'Face-only frame must not set PERSON true',
+  );
+  assertTrue(
+    !detector.isPersonPresent,
+    'Person should remain false before body pose appears',
+  );
+
+  for (int i = 0; i < 2; i++) {
+    final state = detector.updatePresence(
+      bodyPosePresent: true,
+      headPresent: false,
+      facePresent: false,
+      lipsPresent: false,
+      leftHandPresent: false,
+      rightHandPresent: false,
+    );
+    assertTrue(
+      state.personPresent,
+      'Body pose must turn PERSON true once detected',
+    );
+  }
+  assertTrue(
+    detector.isPersonPresent,
+    'Persistent body pose should keep PERSON true',
+  );
+
+  for (int i = 0; i < 3; i++) {
+    final state = detector.updatePresence(
+      bodyPosePresent: false,
+      headPresent: false,
+      facePresent: false,
+      lipsPresent: false,
+      leftHandPresent: false,
+      rightHandPresent: false,
+    );
+    assertTrue(
+      state.personMissingFrames >= i + 1,
+      'Missing-frame counter should increase across gaps',
+    );
+  }
+  assertTrue(
+    !detector.isPersonPresent,
+    'PERSON should fall false after the configured loss threshold',
+  );
+  print(
+    '   ✅ TEST PERSON PRESENCE PASSED: body pose only, temporal stability enforced',
+  );
 
   // ──────────────────────────────── TEST A ────────────────────────────────
   print('\n[TEST A] Camera with no person:');
