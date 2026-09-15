@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:ishara/constants/app_constants.dart';
 import 'package:ishara/models/landmarks_model.dart';
 import 'package:ishara/services/camera_service.dart';
+import 'package:ishara/services/diagnostics/ishara_diagnostic_service.dart';
 import 'package:ishara/services/hand_detection_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -200,6 +201,18 @@ class CameraProvider extends ChangeNotifier {
 
     try {
       _calcFps();
+
+      final frameAge = _lastProcessedFrameTime != null ? now.difference(_lastProcessedFrameTime!).inMilliseconds : 0;
+      IsharaDiagnosticService().recordCamera(
+        isInitialized: _cameraService.isInitialized,
+        isStreaming: isStreaming,
+        fps: _currentFps,
+        frameAgeMs: frameAge,
+        width: image.width,
+        height: image.height,
+        format: image.format.group.name,
+        rotation: _cameraService.sensorOrientation ?? 0,
+      );
 
       // ── كشف اليد عبر hand_detection package مع التدوير واتجاه الكاميرا ──
       final HandLandmarks? result = await _handDetectionService.detectHands(

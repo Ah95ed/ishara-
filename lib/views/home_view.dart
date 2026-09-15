@@ -9,6 +9,7 @@ import 'package:ishara/controllers/sign_controller.dart';
 import 'package:ishara/providers/sign_recognition_provider.dart';
 import 'package:ishara/services/pose/sign_state_machine.dart';
 import 'package:ishara/services/temporal_stabilizer.dart';
+import 'package:ishara/views/diagnostics/ishara_diagnostic_view.dart';
 import 'package:ishara/views/widgets/camera_preview_widget.dart';
 import 'package:ishara/views/widgets/hand_landmarks_debug_panel.dart';
 import 'package:provider/provider.dart';
@@ -119,6 +120,17 @@ class _HomeViewState extends State<HomeView> {
           ),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.biotech_rounded, color: Colors.amber),
+            tooltip: 'فحص مراحل الـ Pipeline (Diagnostic Mode)',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const IsharaDiagnosticView(),
+                ),
+              );
+            },
+          ),
           Consumer<CameraProvider>(
             builder: (context, cameraProvider, _) {
               return IconButton(

@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:ishara/models/sign_segment.dart';
+import 'package:ishara/services/diagnostics/diagnostic_models.dart';
+import 'package:ishara/services/diagnostics/ishara_diagnostic_service.dart';
 import 'package:ishara/services/pose/person_presence_detector.dart';
 import 'package:ishara/services/pose/pose_extractor_service.dart';
 import 'package:ishara/services/pose/pose_preprocessor.dart';
@@ -110,6 +113,23 @@ class SignRecognitionProvider extends ChangeNotifier {
 
     try {
       final vocabOk = await _vocabService.loadVocab();
+      final verifiedMappings = <String>[];
+      final invalidIds = <int>[];
+      for (int i = 0; i < min(10, _vocabService.vocabSize); i++) {
+        final g = _vocabService.getGloss(i);
+        if (g != null) {
+          verifiedMappings.add('ID $i -> "$g"');
+        } else {
+          invalidIds.add(i);
+        }
+      }
+      IsharaDiagnosticService().recordVocabulary(
+        totalClasses: _vocabService.vocabSize,
+        isValid: vocabOk,
+        verifiedMappings: verifiedMappings,
+        invalidIds: invalidIds,
+      );
+
       if (!vocabOk) {
         _error = 'فشل تحميل قاموس المفردات (ishara_vocab.json)';
         notifyListeners();
@@ -117,6 +137,13 @@ class SignRecognitionProvider extends ChangeNotifier {
       }
 
       final modelOk = await _modelService.loadModel();
+      IsharaDiagnosticService().recordTfliteLoad(
+        fileFound: true,
+        isLoaded: modelOk,
+        inputShape: _modelService.inputShape,
+        outputShape: _modelService.outputShape,
+      );
+
       if (!modelOk) {
         _error = 'فشل تحميل نموذج لغة الإشارة (ishara_model.tflite)';
         notifyListeners();
@@ -132,6 +159,11 @@ class SignRecognitionProvider extends ChangeNotifier {
     } catch (e) {
       _isModelLoaded = false;
       _error = e.toString();
+      IsharaDiagnosticService().recordTfliteLoad(
+        fileFound: false,
+        isLoaded: false,
+        errorMessage: e.toString(),
+      );
       notifyListeners();
       return false;
     }
@@ -222,6 +254,9 @@ class SignRecognitionProvider extends ChangeNotifier {
         rawBody: extracted.body,
       );
 
+      // تسجيل تشخيصات الإطار للمراحل 2..8
+      _recordDiagnosticsForFrame(extracted, presenceState, frame86x2);
+
       // 5. تحليل الحركة الزمنية وحساب طاقة الحركة الموزونة
       final motion = _motionAnalyzer.analyzeFrame(
         rightHand: extracted.rightHand,
@@ -272,12 +307,34 @@ class SignRecognitionProvider extends ChangeNotifier {
     try {
       // ──────────────── نافذة A: الشريحة الكاملة مع أخذ العينات الزمنية ────────────────
       final windowA = FrameBuffer.padOrResampleTo128(segment.frames);
+
+      // تسجيل تشخيص دخل النموذج STAGE 9
+      _recordModelInputDiagnostics(windowA);
+
+      final sw = Stopwatch()..start();
+      IsharaDiagnosticService().recordInferenceStart();
       final logitsA = _modelService.runInference(windowA);
+      sw.stop();
 
       if (logitsA == null) {
+        IsharaDiagnosticService().recordInferenceFailure(
+          StateError('TFLite runInference returned null logits'),
+          StackTrace.current,
+        );
+        IsharaDiagnosticService().recordFinalOutput(
+          rawModelGloss: '',
+          finalGloss: null,
+          isConfirmed: false,
+          decision: 'REJECTED',
+          rejectionReason: 'فشل تشغيل نموذج الاستنتاج (TFLite Inference Failed)',
+        );
         _rejectAndReset('فشل تشغيل نموذج الاستنتاج');
         return;
       }
+      IsharaDiagnosticService().recordInferenceSuccess(sw.elapsedMilliseconds);
+
+      // تسجيل تشخيص خرج النموذج STAGE 12
+      _recordModelOutputDiagnostics(logitsA);
 
       // تحليل Logits النافذة A وحساب Top-10 و Blank Ratio
       final analysisA = _modelService.analyzeLogits(
@@ -286,15 +343,55 @@ class SignRecognitionProvider extends ChangeNotifier {
       );
       _lastTop10 = analysisA.top10Classes;
 
+      // تسجيل تشخيص STAGE 13: RAW TOP CLASSES
+      final top5Items = <TopClassItem>[];
+      for (int i = 0; i < min(5, analysisA.top10Classes.length); i++) {
+        final c = analysisA.top10Classes[i];
+        top5Items.add(TopClassItem(rank: i + 1, classId: c.classId, gloss: c.gloss, score: c.score));
+      }
+      IsharaDiagnosticService().recordRawTopClasses(
+        top5: top5Items,
+        blankRatio: analysisA.blankRatio,
+        isBlankDominant: analysisA.isBlankDominant,
+      );
+
+      // فك التشفير عبر CTC Decoder للنافذة A
+      final decodedA = _ctcDecoder.decodeLogits(logitsA);
+
+      // تسجيل تشخيص STAGE 14: CTC
+      IsharaDiagnosticService().recordCtc(
+        rawIds: decodedA.rawIds,
+        collapsedIds: decodedA.collapsedIds,
+        afterBlankRemovalIds: decodedA.glossIds,
+        decodedGlosses: decodedA.glosses,
+        averageConfidence: decodedA.averageConfidence,
+        isFailed: decodedA.isEmpty,
+        errorMessage: decodedA.isEmpty ? 'تسلسل CTC فارغ' : null,
+      );
+
       // المتطلب 18: إذا كانت النتيجة يسيطر عليها الـ Blank تماماً ➔ NO_SIGN طبيعي
       if (analysisA.isBlankDominant) {
+        final topGloss = top5Items.isNotEmpty ? top5Items.first.gloss : 'BLANK';
+        IsharaDiagnosticService().recordFinalOutput(
+          rawModelGloss: topGloss,
+          finalGloss: null,
+          isConfirmed: false,
+          decision: 'REJECTED',
+          rejectionReason: 'سيطرة Blank على التسلسل (حركة غير إشارية)',
+        );
         _rejectAndReset('سيطرة Blank على التسلسل (حركة غير إشارية)');
         return;
       }
 
-      // فك التشفير عبر CTC Decoder للنافذة A
-      final decodedA = _ctcDecoder.decodeLogits(logitsA);
       if (decodedA.isEmpty) {
+        final topGloss = top5Items.isNotEmpty ? top5Items.first.gloss : 'NONE';
+        IsharaDiagnosticService().recordFinalOutput(
+          rawModelGloss: topGloss,
+          finalGloss: null,
+          isConfirmed: false,
+          decision: 'REJECTED',
+          rejectionReason: 'تسلسل CTC فارغ بعد إزالة الفراغات',
+        );
         _rejectAndReset('تسلسل CTC فارغ');
         return;
       }
@@ -307,12 +404,26 @@ class SignRecognitionProvider extends ChangeNotifier {
       // ──────────────── طبقة الرفض المبدئي (Rejection Layer) ────────────────
       // 1. تصفية الحروف المنفردة (المتطلب 10 و 17)
       if (!WordOnlyFilter.isValidWord(candidateA)) {
+        IsharaDiagnosticService().recordFinalOutput(
+          rawModelGloss: candidateA,
+          finalGloss: null,
+          isConfirmed: false,
+          decision: 'REJECTED',
+          rejectionReason: 'حرف منفرد أو رمز غير مقبول: $candidateA',
+        );
         _rejectAndReset('حرف منفرد أو رمز غير مقبول: $candidateA');
         return;
       }
 
       // 2. فحص الحد الأدنى لثقة التسلسل
       if (confA < 0.40) {
+        IsharaDiagnosticService().recordFinalOutput(
+          rawModelGloss: candidateA,
+          finalGloss: null,
+          isConfirmed: false,
+          decision: 'REJECTED',
+          rejectionReason: 'ثقة استنتاج ضعيفة: ${(confA * 100).toStringAsFixed(1)}%',
+        );
         _rejectAndReset('ثقة استنتاج ضعيفة: ${(confA * 100).toStringAsFixed(1)}%');
         return;
       }
@@ -337,21 +448,48 @@ class SignRecognitionProvider extends ChangeNotifier {
 
       if (!isTemporallyConsistent && candidateB != null && candidateB.isNotEmpty) {
         // تعارض حاد بين النافذتين ➔ UNCERTAIN
+        IsharaDiagnosticService().recordFinalOutput(
+          rawModelGloss: candidateA,
+          finalGloss: null,
+          isConfirmed: false,
+          decision: 'REJECTED',
+          rejectionReason: 'تعارض زمني غير مستقر بين النافذتين (A: $candidateA, B: $candidateB)',
+        );
         _rejectAndReset('تعارض زمني غير مستقر بين النافذتين (A: $candidateA, B: $candidateB)');
         return;
       }
 
       // ──────────────── قمع التكرار اللحظي (المتطلب 28) ────────────────
       if (candidateA == _stateMachine.lastConfirmedWord) {
+        IsharaDiagnosticService().recordFinalOutput(
+          rawModelGloss: candidateA,
+          finalGloss: null,
+          isConfirmed: false,
+          decision: 'REJECTED',
+          rejectionReason: 'قمع تكرار نفس الكلمة السابقة دون فاصل انتقال',
+        );
         _rejectAndReset('قمع تكرار نفس الكلمة السابقة دون فاصل انتقال');
         return;
       }
 
       // ──────────────── اعتماد الإشارة (CONFIRMED) ────────────────
       final double finalConfidence = confB > 0 ? (confA * 0.6 + confB * 0.4) : confA;
+      IsharaDiagnosticService().recordFinalOutput(
+        rawModelGloss: candidateA,
+        finalGloss: candidateA,
+        isConfirmed: true,
+        decision: 'CONFIRMED',
+      );
       _confirmSign(candidateA, finalConfidence);
     } catch (e) {
       debugPrint('[SignRecognitionProvider] Segment analysis error: $e');
+      IsharaDiagnosticService().recordFinalOutput(
+        rawModelGloss: _lastCandidateWord,
+        finalGloss: null,
+        isConfirmed: false,
+        decision: 'REJECTED',
+        rejectionReason: 'خطأ أثناء التحليل: $e',
+      );
       _rejectAndReset('خطأ أثناء التحليل: $e');
     } finally {
       _isInferenceRunning = false;
@@ -384,6 +522,180 @@ class SignRecognitionProvider extends ChangeNotifier {
     }
     _stateMachine.startCooldown();
     notifyListeners();
+  }
+
+  // ──────────────────────────── Diagnostic Helper Methods ────────────────────────────
+  void _recordDiagnosticsForFrame(
+    ExtractedPoseFrame extracted,
+    PersonPresenceState presenceState,
+    List<List<double>> frame86x2,
+  ) {
+    final diag = IsharaDiagnosticService();
+
+    // 2. Person Detection
+    diag.recordPerson(
+      personPresent: presenceState.personPresent,
+      posePresent: presenceState.bodyPosePresent,
+      facePresent: presenceState.facePresent,
+      headPresent: presenceState.headPresent,
+    );
+
+    // 3. Hands Detection
+    diag.recordHands(
+      leftHandDetected: extracted.leftHand != null,
+      leftHandLandmarks: extracted.leftHand?.length ?? 0,
+      leftHandConfidence: extracted.leftHandConfidence,
+      rightHandDetected: extracted.rightHand != null,
+      rightHandLandmarks: extracted.rightHand?.length ?? 0,
+      rightHandConfidence: extracted.rightHandConfidence,
+    );
+
+    // 4. Face/Head/Lips
+    diag.recordFaceHeadLips(
+      faceDetected: extracted.facePresent,
+      headDetected: extracted.headPresent,
+      lipsDetected: extracted.lipsPresent,
+      validFacePoints: extracted.facePresent ? 1 : 0,
+      validHeadPoints: extracted.body?.length ?? 0,
+      validLipPoints: extracted.lips?.length ?? 0,
+      confidence: extracted.headConfidence,
+    );
+
+    // 5. 86 Keypoints
+    diag.record86Keypoints(frame86x2);
+
+    // 6. Point Groups
+    diag.recordPointGroups(
+      rightHandValid: extracted.rightHand?.length ?? 0,
+      leftHandValid: extracted.leftHand?.length ?? 0,
+      faceLipValid: extracted.lips?.length ?? 0,
+      bodyValid: extracted.body?.length ?? 0,
+    );
+
+    // 7. Preprocessing
+    double rawMinX = double.infinity, rawMaxX = double.negativeInfinity;
+    double rawMinY = double.infinity, rawMaxY = double.negativeInfinity;
+    void checkPoints(List<List<double>>? pts) {
+      if (pts == null) return;
+      for (final p in pts) {
+        if (p.length >= 2) {
+          if (p[0] < rawMinX) rawMinX = p[0];
+          if (p[0] > rawMaxX) rawMaxX = p[0];
+          if (p[1] < rawMinY) rawMinY = p[1];
+          if (p[1] > rawMaxY) rawMaxY = p[1];
+        }
+      }
+    }
+    checkPoints(extracted.rightHand);
+    checkPoints(extracted.leftHand);
+    checkPoints(extracted.lips);
+    checkPoints(extracted.body);
+    if (rawMinX == double.infinity) rawMinX = 0.0;
+    if (rawMaxX == double.negativeInfinity) rawMaxX = 0.0;
+    if (rawMinY == double.infinity) rawMinY = 0.0;
+    if (rawMaxY == double.negativeInfinity) rawMaxY = 0.0;
+
+    double normMin = double.infinity, normMax = double.negativeInfinity, normSum = 0.0;
+    bool hasNan = false, hasInf = false, hasExtreme = false;
+    int totalNorm = 0;
+    for (final p in frame86x2) {
+      for (final v in p) {
+        if (v.isNaN) hasNan = true;
+        if (v.isInfinite) hasInf = true;
+        if (v.abs() > 3.0) hasExtreme = true;
+        if (v < normMin) normMin = v;
+        if (v > normMax) normMax = v;
+        normSum += v;
+        totalNorm++;
+      }
+    }
+    final normMean = totalNorm > 0 ? normSum / totalNorm : 0.0;
+    if (normMin == double.infinity) normMin = 0.0;
+    if (normMax == double.negativeInfinity) normMax = 0.0;
+
+    diag.recordPreprocessing(
+      rawMinX: rawMinX,
+      rawMaxX: rawMaxX,
+      rawMinY: rawMinY,
+      rawMaxY: rawMaxY,
+      normMin: normMin,
+      normMax: normMax,
+      normMean: normMean,
+      hasNan: hasNan,
+      hasInfinity: hasInf,
+      hasExtremeValues: hasExtreme,
+    );
+
+    // 8. Buffer
+    diag.recordBuffer(
+      currentFrames: _stateMachine.activeFramesCount,
+      requiredFrames: 128,
+      validFrames: _stateMachine.activeFramesCount,
+      invalidFrames: 0,
+      personFrames: presenceState.personPresent ? _stateMachine.activeFramesCount : 0,
+      handFrames: (extracted.rightHand != null || extracted.leftHand != null) ? _stateMachine.activeFramesCount : 0,
+      headFrames: extracted.headPresent ? _stateMachine.activeFramesCount : 0,
+    );
+  }
+
+  void _recordModelInputDiagnostics(List<List<List<double>>> windowA) {
+    double inMin = double.infinity, inMax = double.negativeInfinity, inSum = 0.0;
+    int inNan = 0, inZeros = 0, inCount = 0;
+    for (final frame in windowA) {
+      for (final pt in frame) {
+        for (final val in pt) {
+          inCount++;
+          if (val.isNaN) inNan++;
+          if (val.abs() < 1e-7) inZeros++;
+          if (val < inMin) inMin = val;
+          if (val > inMax) inMax = val;
+          inSum += val;
+        }
+      }
+    }
+    final inMean = inCount > 0 ? inSum / inCount : 0.0;
+    if (inMin == double.infinity) inMin = 0.0;
+    if (inMax == double.negativeInfinity) inMax = 0.0;
+    final zeroPct = inCount > 0 ? (inZeros / inCount) * 100.0 : 0.0;
+
+    IsharaDiagnosticService().recordModelInput(
+      shape: [1, windowA.length, windowA.isNotEmpty ? windowA[0].length : 0, 2],
+      totalValues: inCount,
+      min: inMin,
+      max: inMax,
+      mean: inMean,
+      nanCount: inNan,
+      zeroPercentage: zeroPct,
+    );
+  }
+
+  void _recordModelOutputDiagnostics(List<List<double>> logitsA) {
+    int outNan = 0, outInf = 0, outZeros = 0, outCount = 0;
+    double outMin = double.infinity, outMax = double.negativeInfinity, outSum = 0.0;
+    for (final step in logitsA) {
+      for (final v in step) {
+        outCount++;
+        if (v.isNaN) outNan++;
+        if (v.isInfinite) outInf++;
+        if (v.abs() < 1e-7) outZeros++;
+        if (v < outMin) outMin = v;
+        if (v > outMax) outMax = v;
+        outSum += v;
+      }
+    }
+    final outMean = outCount > 0 ? outSum / outCount : 0.0;
+    if (outMin == double.infinity) outMin = 0.0;
+    if (outMax == double.negativeInfinity) outMax = 0.0;
+
+    IsharaDiagnosticService().recordModelOutput(
+      outputShape: [1, logitsA.length, logitsA.isNotEmpty ? logitsA[0].length : 0],
+      nanCount: outNan,
+      infinityCount: outInf,
+      isAllZeros: outZeros == outCount,
+      min: outMin,
+      max: outMax,
+      mean: outMean,
+    );
   }
 
   /// مسح التسلسل وسجل التنبؤات

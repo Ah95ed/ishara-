@@ -7,12 +7,16 @@ class DecodedGlossResult {
   final List<String> glosses;
   final List<double> confidences;
   final double averageConfidence;
+  final List<int> rawIds;
+  final List<int> collapsedIds;
 
   const DecodedGlossResult({
     required this.glossIds,
     required this.glosses,
     required this.confidences,
     required this.averageConfidence,
+    this.rawIds = const [],
+    this.collapsedIds = const [],
   });
 
   bool get isEmpty => glosses.isEmpty;
@@ -115,11 +119,22 @@ class CtcGreedyDecoder {
         ? finalConfs.reduce((a, b) => a + b) / finalConfs.length
         : 0.0;
 
+    final collapsedIds = <int>[];
+    int? prevId;
+    for (final id in rawIds) {
+      if (id != prevId) {
+        collapsedIds.add(id);
+        prevId = id;
+      }
+    }
+
     return DecodedGlossResult(
       glossIds: finalIds,
       glosses: finalGlosses,
       confidences: finalConfs,
       averageConfidence: avgConf,
+      rawIds: List.unmodifiable(rawIds),
+      collapsedIds: List.unmodifiable(collapsedIds),
     );
   }
 
