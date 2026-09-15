@@ -26,7 +26,6 @@ android {
     }
 
     defaultConfig {
-
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.Ishara.iq.ishara"
         minSdk = 26
@@ -50,13 +49,12 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
-       
-         isMinifyEnabled = true
-        isShrinkResources = true
-        proguardFiles(
-            getDefaultProguardFile("proguard-android-optimize.txt"),
-            "proguard-rules.pro"
-        )
+            isMinifyEnabled = false
+            isShrinkResources = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 

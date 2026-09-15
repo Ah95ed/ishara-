@@ -51,13 +51,21 @@ class PersonPresenceService {
   Future<void> initialize() async {
     if (_isInitialized) return;
 
-    _detector = PoseDetector(
-      options: PoseDetectorOptions(
-        model: PoseDetectionModel.base,
-        mode: PoseDetectionMode.stream,
-      ),
-    );
-    _isInitialized = true;
+    try {
+      _detector = PoseDetector(
+        options: PoseDetectorOptions(
+          model: PoseDetectionModel.base,
+          mode: PoseDetectionMode.stream,
+        ),
+      );
+      _isInitialized = true;
+    } catch (e) {
+      _detector = null;
+      _isInitialized = false;
+      if (kDebugMode) {
+        debugPrint('[PersonPresenceService] ⚠️ Failed to initialize PoseDetector: $e');
+      }
+    }
   }
 
   Future<PersonPresenceResult> detectFromCameraImage(
@@ -76,6 +84,9 @@ class PersonPresenceService {
         sensorOrientation: sensorOrientation,
         deviceOrientation: deviceOrientation,
       );
+      if (inputImage == null) {
+        return PersonPresenceResult.empty;
+      }
 
       final poses = await _detector!.processImage(inputImage);
       if (poses.isEmpty) {
@@ -155,18 +166,27 @@ class PersonPresenceService {
     }
   }
 
-  InputImage _createInputImage(
+  InputImage? _createInputImage(
     CameraImage image, {
     int? sensorOrientation,
     required DeviceOrientation deviceOrientation,
   }) {
+    if (image.planes.isEmpty) return null;
+
     final imageFormat = _inputImageFormatFromCamera(image);
     final inputRotation = _inputRotationFromCamera(
       sensorOrientation: sensorOrientation,
       deviceOrientation: deviceOrientation,
     );
 
-    final bytes = image.planes.first.bytes;
+    // Concatenate all planes into a single byte array for YUV420 so that
+    // native ML Kit doesn't crash on incomplete buffer length
+    final WriteBuffer allBytes = WriteBuffer();
+    for (final Plane plane in image.planes) {
+      allBytes.putUint8List(plane.bytes);
+    }
+    final bytes = allBytes.done().buffer.asUint8List();
+
     return InputImage.fromBytes(
       bytes: bytes,
       metadata: InputImageMetadata(

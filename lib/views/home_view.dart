@@ -1,4 +1,5 @@
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:ishara/constants/app_constants.dart';
@@ -40,34 +41,41 @@ class _HomeViewState extends State<HomeView> {
 
   Future<void> _onCameraImage(CameraImage image) async {
     if (!mounted) return;
-    final cameraProvider = context.read<CameraProvider>();
-    await cameraProvider.processFrame(image);
-    if (!mounted) return;
+    try {
+      final cameraProvider = context.read<CameraProvider>();
+      await cameraProvider.processFrame(image);
+      if (!mounted) return;
 
-    // تشغيل نموذج CSLR Transformer مع فك شفرة CTC ومعالجة الـ 86 نقطة
-    final signRecognition = context.read<SignRecognitionProvider>();
-    if (signRecognition.isRecognizing) {
-      final isFront =
-          cameraProvider.cameraController?.description.lensDirection ==
-          CameraLensDirection.front;
-      final sensorOrientation =
-          cameraProvider.cameraController?.description.sensorOrientation;
-      final deviceOrientation =
-          cameraProvider.cameraController?.value.deviceOrientation ??
-          DeviceOrientation.portraitUp;
-      signRecognition.processFrame(
-        image,
-        sensorOrientation: sensorOrientation,
-        isFrontCamera: isFront,
-        deviceOrientation: deviceOrientation,
-      );
-    }
+      // تشغيل نموذج CSLR Transformer مع فك شفرة CTC ومعالجة الـ 86 نقطة
+      final signRecognition = context.read<SignRecognitionProvider>();
+      if (signRecognition.isRecognizing) {
+        final isFront =
+            cameraProvider.cameraController?.description.lensDirection ==
+            CameraLensDirection.front;
+        final sensorOrientation =
+            cameraProvider.cameraController?.description.sensorOrientation;
+        final deviceOrientation =
+            cameraProvider.cameraController?.value.deviceOrientation ??
+            DeviceOrientation.portraitUp;
+        await signRecognition.processFrame(
+          image,
+          sensorOrientation: sensorOrientation,
+          isFrontCamera: isFront,
+          deviceOrientation: deviceOrientation,
+        );
+      }
 
-    final signProvider = context.read<SignProvider>();
-    if (cameraProvider.isRealHand && cameraProvider.latestLandmarks != null) {
-      await signProvider.processLandmarks(cameraProvider.latestLandmarks);
-    } else {
-      await signProvider.processLandmarks(null);
+      if (!mounted) return;
+      final signProvider = context.read<SignProvider>();
+      if (cameraProvider.isRealHand && cameraProvider.latestLandmarks != null) {
+        await signProvider.processLandmarks(cameraProvider.latestLandmarks);
+      } else {
+        await signProvider.processLandmarks(null);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[HomeView] ⚠️ Error in _onCameraImage: $e');
+      }
     }
   }
 

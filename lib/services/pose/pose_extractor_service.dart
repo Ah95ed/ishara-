@@ -182,13 +182,23 @@ class PoseExtractorService {
 
       final bool handPresent =
           rightHandPoints != null || leftHandPoints != null;
-      final personCheck = await _personPresenceService.detectFromCameraImage(
-        image,
-        sensorOrientation: sensorOrientation,
-        isFrontCamera: isFrontCamera,
-        deviceOrientation: deviceOrientation,
-      );
-      final bool bodyPosePresent = personCheck.personPresent;
+
+      PersonPresenceResult personCheck = PersonPresenceResult.empty;
+      try {
+        personCheck = await _personPresenceService.detectFromCameraImage(
+          image,
+          sensorOrientation: sensorOrientation,
+          isFrontCamera: isFrontCamera,
+          deviceOrientation: deviceOrientation,
+        );
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[PoseExtractorService] ⚠️ PersonPresenceService error: $e');
+        }
+      }
+
+      final bool bodyPosePresent =
+          personCheck.personPresent || faceHeadResult.bodyPosePresent;
       final bool headPresent = faceHeadResult.headPresent;
       final bool facePresent = faceHeadResult.facePresent;
       final bool lipsPresent = faceHeadResult.lipsPresent;

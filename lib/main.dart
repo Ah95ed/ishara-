@@ -76,19 +76,54 @@ class _IsharaAppState extends State<IsharaApp> {
   Future<void> _initializeServices() async {
     try {
       await _speechService.initialize();
-      await _localMemoryService.initialize();
-      await _signRepository.loadLabels();
-      await _mlService.loadModel(_signRepository.labels);
-      await _localModelService.initialize();
-      await _handDetectionService.initialize();
+    } catch (e) {
+      debugPrint('[Main] ⚠️ SpeechService init error: $e');
+    }
 
+    try {
+      await _localMemoryService.initialize();
+    } catch (e) {
+      debugPrint('[Main] ⚠️ LocalMemoryService init error: $e');
+    }
+
+    try {
+      await _signRepository.loadLabels();
+    } catch (e) {
+      debugPrint('[Main] ⚠️ SignRepository loadLabels error: $e');
+    }
+
+    try {
+      await _mlService.loadModel(_signRepository.labels);
+    } catch (e) {
+      debugPrint('[Main] ⚠️ MLService loadModel error: $e');
+    }
+
+    try {
+      await _localModelService.initialize();
+    } catch (e) {
+      debugPrint('[Main] ⚠️ LocalModelService init error: $e');
+    }
+
+    try {
+      await _handDetectionService.initialize();
+    } catch (e) {
+      debugPrint('[Main] ⚠️ HandDetectionService init error: $e');
+    }
+
+    try {
       // تهيئة نموذج Ishara CSLR Transformer (ishara_model.tflite) ومفكك CTC
       await _signRecognitionProvider.initialize();
       _signRecognitionProvider.startRecognition();
+    } catch (e) {
+      debugPrint('[Main] ⚠️ SignRecognitionProvider init error: $e');
+    }
 
-      // تهيئة نموذج Gemma3 GGUF في الخلفية دون تجميد الواجهة
+    try {
+      // تهيئة نموذج Gemma3 GGUF في الخلفية دون تجميد الواجهة إذا توفر
       _glossModelService.loadModel().catchError((_) => false);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[Main] ⚠️ GlossModelService init error: $e');
+    }
   }
 
   @override
