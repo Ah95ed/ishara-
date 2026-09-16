@@ -645,6 +645,14 @@ class SignRecognitionProvider extends ChangeNotifier {
       rightHandDetected: extracted.rightHand != null,
       rightHandLandmarks: extracted.rightHand?.length ?? 0,
       rightHandConfidence: extracted.rightHandConfidence,
+      handDetectorCalls: extracted.handDetectorCalls,
+      handDetectorResults: extracted.handDetectorResults,
+      handDetectorErrors: extracted.handDetectorErrors,
+      leftHandResults: extracted.leftHandResults,
+      rightHandResults: extracted.rightHandResults,
+      exceptionType: extracted.handDetectorException != null ? 'HandDetectorException' : null,
+      stackTraceSnippet: extracted.handDetectorStackTrace,
+      errorMessage: extracted.handDetectorException,
     );
 
     // 4. Face/Head/Lips

@@ -20,6 +20,7 @@ class DiagnosticErrorCodes {
   // Model Diagnostic Error Codes (Part A)
   static const String e001ModelAssetNotFound = 'E001_MODEL_ASSET_NOT_FOUND';
   static const String e002ModelAssetEmpty = 'E002_MODEL_ASSET_EMPTY';
+  static const String e003ModelIsGitLfsPointer = 'E003_MODEL_IS_GIT_LFS_POINTER';
   static const String e010InterpreterCreateFailed = 'E010_INTERPRETER_CREATE_FAILED';
   static const String e011TensorShapeMismatch = 'E011_TENSOR_SHAPE_MISMATCH';
   static const String e012StandaloneInferenceFailed = 'E012_STANDALONE_INFERENCE_FAILED';
@@ -29,6 +30,10 @@ class DiagnosticErrorCodes {
   static const String e101PersonDetectorNotCalled = 'E101_PERSON_DETECTOR_NOT_CALLED';
   static const String e102PersonDetectorException = 'E102_PERSON_DETECTOR_EXCEPTION';
   static const String e110ImageConversionFailed = 'E110_IMAGE_CONVERSION_FAILED';
+
+  // Hand Detection Error Codes
+  static const String e202HandDetectorNotCalled = 'E202_HAND_DETECTOR_NOT_CALLED';
+  static const String e203HandDetectorException = 'E203_HAND_DETECTOR_EXCEPTION';
 
   // Sign Pipeline Error Codes
   static const String e201KeypointCount = 'E201_KEYPOINT_COUNT';
@@ -61,8 +66,14 @@ class DiagnosticErrorCodes {
         return 'ملف الموديل غير موجود في الأصول (E001_MODEL_ASSET_NOT_FOUND)';
       case e002ModelAssetEmpty:
         return 'ملف الموديل فارغ 0 بايت (E002_MODEL_ASSET_EMPTY)';
+      case e003ModelIsGitLfsPointer:
+        return 'ملف الموديل عبارة عن مؤشر Git LFS (134 بايت) وليس الملف الحقيقي (E003_MODEL_IS_GIT_LFS_POINTER)';
       case e010InterpreterCreateFailed:
         return 'فشل إنشاء Interpreter للنموذج (E010_INTERPRETER_CREATE_FAILED)';
+      case e202HandDetectorNotCalled:
+        return 'كاشف الأيدي لم يتم استدعاؤه رغم وصول إطارات الكاميرا (E202_HAND_DETECTOR_NOT_CALLED)';
+      case e203HandDetectorException:
+        return 'حدث خطأ استثنائي داخل كاشف الأيدي (E203_HAND_DETECTOR_EXCEPTION)';
       case e011TensorShapeMismatch:
         return 'أبعاد Tensors الحقيقية لا تطابق المتوقع (E011_TENSOR_SHAPE_MISMATCH)';
       case e012StandaloneInferenceFailed:
@@ -228,6 +239,13 @@ class HandsDiagnosticData {
   final bool rightHandDetected;
   final int rightHandLandmarks;
   final double rightHandConfidence;
+  final int handDetectorCalls;
+  final int handDetectorResults;
+  final int handDetectorErrors;
+  final int leftHandResults;
+  final int rightHandResults;
+  final String? exceptionType;
+  final String? stackTraceSnippet;
   final String? errorCode;
   final String? errorMessage;
 
@@ -239,6 +257,13 @@ class HandsDiagnosticData {
     this.rightHandDetected = false,
     this.rightHandLandmarks = 0,
     this.rightHandConfidence = 0.0,
+    this.handDetectorCalls = 0,
+    this.handDetectorResults = 0,
+    this.handDetectorErrors = 0,
+    this.leftHandResults = 0,
+    this.rightHandResults = 0,
+    this.exceptionType,
+    this.stackTraceSnippet,
     this.errorCode,
     this.errorMessage,
   });
@@ -247,6 +272,12 @@ class HandsDiagnosticData {
     'status': status.name,
     'leftHand': {'detected': leftHandDetected, 'landmarks': leftHandLandmarks, 'confidence': leftHandConfidence},
     'rightHand': {'detected': rightHandDetected, 'landmarks': rightHandLandmarks, 'confidence': rightHandConfidence},
+    'handDetectorCalls': handDetectorCalls,
+    'handDetectorResults': handDetectorResults,
+    'handDetectorErrors': handDetectorErrors,
+    'leftHandResults': leftHandResults,
+    'rightHandResults': rightHandResults,
+    'exceptionType': exceptionType,
     'errorCode': errorCode,
     'errorMessage': errorMessage,
   };
@@ -872,10 +903,14 @@ class DiagnosticSnapshot {
     b.writeln('PERSON DETECTOR RESULTS: ${camera.personDetectorResults}');
     b.writeln('PERSON DETECTOR ERRORS:  ${camera.personDetectorErrors}');
     b.writeln('PERSON:                  ${person.status.displayText} (Present: ${person.personPresent})');
-    b.writeln('POSE:                    [${camera.poseLandmarks} landmarks]');
-    b.writeln('FACE:                    [${camera.faceLandmarks} landmarks]');
-    b.writeln('LEFT HAND:               [${camera.leftHandLandmarks} landmarks]');
-    b.writeln('RIGHT HAND:              [${camera.rightHandLandmarks} landmarks]');
+    b.writeln('POSE:                    [${camera.poseLandmarks}/25 landmarks]');
+    b.writeln('FACE/LIPS:               [${faceHead.validLipPoints}/19 landmarks]');
+    b.writeln('HAND DETECTOR CALLS:     ${hands.handDetectorCalls}');
+    b.writeln('HAND DETECTOR RESULTS:   ${hands.handDetectorResults}');
+    b.writeln('HAND DETECTOR ERRORS:    ${hands.handDetectorErrors}');
+    b.writeln('LEFT HAND:               [${hands.leftHandLandmarks}/21 landmarks]');
+    b.writeln('RIGHT HAND:              [${hands.rightHandLandmarks}/21 landmarks]');
+    if (hands.errorMessage != null) b.writeln('   Hand Status: ${hands.errorCode ?? ""} ${hands.errorMessage}');
     b.writeln('PREVIEW ROTATION:        ${camera.previewRotation} degrees');
     b.writeln('DETECTOR INPUT ROTATION: ${camera.detectorInputRotation} degrees');
     b.writeln('');

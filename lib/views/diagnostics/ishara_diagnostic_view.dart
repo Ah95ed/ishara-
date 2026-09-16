@@ -467,21 +467,38 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView>
           ],
         ),
 
-        // 6. LANDMARK COUNTS (POSE, FACE, HANDS)
+        // 6. HAND DETECTOR CALLS & METRICS
         _buildItemCard(
-          title: 'معالم الجسم والوجه واليدين (LANDMARKS)',
-          status: (camera.poseLandmarks > 0 || camera.faceLandmarks > 0)
-              ? DiagnosticStageStatus.pass
-              : DiagnosticStageStatus.waiting,
+          title: 'كاشف الأيدي (HAND DETECTOR METRICS)',
+          status: hands.status,
+          errorCode: hands.errorCode,
+          failureReason: hands.errorMessage,
           details: [
-            'معالم وضعية الجسم (Pose): [${camera.poseLandmarks} landmarks] (25 معلماً علوياً)',
-            'معالم الوجه/الشفاه (Face/Lips): [${camera.faceLandmarks} landmarks] (19 نقطة شفاه)',
-            'اليد اليسرى (Left Hand): [${camera.leftHandLandmarks} landmarks] (الثقة: ${(hands.leftHandConfidence * 100).toStringAsFixed(1)}%)',
-            'اليد اليمنى (Right Hand): [${camera.rightHandLandmarks} landmarks] (الثقة: ${(hands.rightHandConfidence * 100).toStringAsFixed(1)}%)',
+            'استدعاءات كاشف اليد (Calls): ${hands.handDetectorCalls}',
+            'النتائج الناجحة (Results): ${hands.handDetectorResults}',
+            'الأخطاء والاستثناءات (Errors): ${hands.handDetectorErrors}',
+            'كشف اليد اليسرى: [${hands.leftHandLandmarks} / 21 معلماً] (مرات الكشف: ${hands.leftHandResults})',
+            'كشف اليد اليمنى: [${hands.rightHandLandmarks} / 21 معلماً] (مرات الكشف: ${hands.rightHandResults})',
+            if (hands.exceptionType != null) 'نوع الاستثناء: ${hands.exceptionType}',
+            if (hands.stackTraceSnippet != null) 'تتبع الخطأ:\n${hands.stackTraceSnippet}',
           ],
         ),
 
-        // 7. ROTATION
+        // 7. LANDMARK COUNTS (POSE, FACE, HANDS)
+        _buildItemCard(
+          title: 'معالم الجسم والوجه واليدين (LANDMARKS)',
+          status: (camera.poseLandmarks > 0 || camera.faceLandmarks > 0 || hands.leftHandLandmarks > 0 || hands.rightHandLandmarks > 0)
+              ? DiagnosticStageStatus.pass
+              : DiagnosticStageStatus.waiting,
+          details: [
+            'معالم وضعية الجسم (Pose): [${camera.poseLandmarks}/25 landmarks] (25 معلماً علوياً)',
+            'معالم الوجه/الشفاه (Face/Lips): [${camera.faceLandmarks}/19 landmarks] (19 نقطة شفاه)',
+            'اليد اليسرى (Left Hand): [${hands.leftHandLandmarks} / 21 landmarks] (الثقة: ${(hands.leftHandConfidence * 100).toStringAsFixed(1)}%)',
+            'اليد اليمنى (Right Hand): [${hands.rightHandLandmarks} / 21 landmarks] (الثقة: ${(hands.rightHandConfidence * 100).toStringAsFixed(1)}%)',
+          ],
+        ),
+
+        // 8. ROTATION
         _buildItemCard(
           title: 'زوايا الدوران (ROTATIONS)',
           status: DiagnosticStageStatus.pass,

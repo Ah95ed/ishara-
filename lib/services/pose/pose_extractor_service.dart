@@ -23,6 +23,13 @@ class ExtractedPoseFrame {
   final double rightHandConfidence;
   final double leftHandConfidence;
   final double headConfidence;
+  final int handDetectorCalls;
+  final int handDetectorResults;
+  final int handDetectorErrors;
+  final int leftHandResults;
+  final int rightHandResults;
+  final String? handDetectorException;
+  final String? handDetectorStackTrace;
 
   const ExtractedPoseFrame({
     this.rightHand,
@@ -39,14 +46,21 @@ class ExtractedPoseFrame {
     this.rightHandConfidence = 0.0,
     this.leftHandConfidence = 0.0,
     this.headConfidence = 0.0,
+    this.handDetectorCalls = 0,
+    this.handDetectorResults = 0,
+    this.handDetectorErrors = 0,
+    this.leftHandResults = 0,
+    this.rightHandResults = 0,
+    this.handDetectorException,
+    this.handDetectorStackTrace,
   });
 }
 
 /// خدمة استخراج معالم الأيدي والوجه والجسم الـ 86 من إطارات الكاميرا
 /// تراعي توجيه المستشعر، تدوير الكاميرا، والكاميرا الأمامية/الخلفية بدقة.
 class PoseExtractorService {
-  static const double _detectorConf = 0.65;
-  static const double _minLandmarkScore = 0.40;
+  static const double _detectorConf = 0.45;
+  static const double _minLandmarkScore = 0.35;
   static const int _maxDetections = 2;
   static const int _maxDim = 640;
 
@@ -55,7 +69,22 @@ class PoseExtractorService {
   bool _isInitialized = false;
   bool _isProcessing = false;
 
+  int _handDetectorCalls = 0;
+  int _handDetectorResults = 0;
+  int _handDetectorErrors = 0;
+  int _leftHandResults = 0;
+  int _rightHandResults = 0;
+  String? _lastHandDetectorError;
+  String? _lastHandDetectorStackTrace;
+
   bool get isInitialized => _isInitialized;
+  int get handDetectorCalls => _handDetectorCalls;
+  int get handDetectorResults => _handDetectorResults;
+  int get handDetectorErrors => _handDetectorErrors;
+  int get leftHandResults => _leftHandResults;
+  int get rightHandResults => _rightHandResults;
+  String? get lastHandDetectorError => _lastHandDetectorError;
+  String? get lastHandDetectorStackTrace => _lastHandDetectorStackTrace;
 
   /// تهيئة محرك الكشف
   Future<bool> initialize() async {
@@ -79,10 +108,12 @@ class PoseExtractorService {
         '[PoseExtractorService] ✅ ML Kit pose detector initialized successfully',
       );
       return true;
-    } catch (e) {
+    } catch (e, stack) {
       _isInitialized = false;
+      _lastHandDetectorError = '$e';
+      _lastHandDetectorStackTrace = '$stack';
       debugPrint(
-        '[PoseExtractorService] ❌ Failed to initialize hand detector: $e',
+        '[PoseExtractorService] ❌ Failed to initialize hand detector: $e\n$stack',
       );
       return false;
     }
@@ -95,8 +126,27 @@ class PoseExtractorService {
     bool isFrontCamera = false,
     DeviceOrientation deviceOrientation = DeviceOrientation.portraitUp,
   }) async {
-    if (!_isInitialized || _handDetector == null || _isProcessing) {
-      return const ExtractedPoseFrame(hasActiveDetection: false);
+    if (!_isInitialized) {
+      final ok = await initialize();
+      if (!ok) {
+        return ExtractedPoseFrame(
+          hasActiveDetection: false,
+          handDetectorErrors: ++_handDetectorErrors,
+          handDetectorException: _lastHandDetectorError,
+          handDetectorStackTrace: _lastHandDetectorStackTrace,
+        );
+      }
+    }
+
+    if (_isProcessing) {
+      return ExtractedPoseFrame(
+        hasActiveDetection: false,
+        handDetectorCalls: _handDetectorCalls,
+        handDetectorResults: _handDetectorResults,
+        handDetectorErrors: _handDetectorErrors,
+        leftHandResults: _leftHandResults,
+        rightHandResults: _rightHandResults,
+      );
     }
 
     _isProcessing = true;
@@ -127,12 +177,27 @@ class PoseExtractorService {
         maxDim: _maxDim,
       );
 
-      final List<hd.Hand> hands = await _handDetector!.detectFromCameraImage(
-        image,
-        rotation: rotation,
-        isBgra: Platform.isMacOS,
-        maxDim: _maxDim,
-      );
+      _handDetectorCalls++;
+      List<hd.Hand> hands = const [];
+      String? handError;
+      String? handStack;
+
+      try {
+        hands = await _handDetector!.detectFromCameraImage(
+          image,
+          rotation: rotation,
+          isBgra: Platform.isMacOS,
+          maxDim: _maxDim,
+        );
+        _handDetectorResults++;
+      } catch (e, stack) {
+        _handDetectorErrors++;
+        handError = e.toString();
+        handStack = stack.toString();
+        _lastHandDetectorError = handError;
+        _lastHandDetectorStackTrace = handStack;
+        debugPrint('[PoseExtractorService] ❌ Hand Detector Exception: $e');
+      }
 
       final double dW = detSize.width;
       final double dH = detSize.height;
@@ -167,15 +232,19 @@ class PoseExtractorService {
           if (isRightHand && rightHandPoints == null) {
             rightHandPoints = points;
             rightHandConf = hand.score.clamp(0.0, 1.0);
+            _rightHandResults++;
           } else if (!isRightHand && leftHandPoints == null) {
             leftHandPoints = points;
             leftHandConf = hand.score.clamp(0.0, 1.0);
+            _leftHandResults++;
           } else if (rightHandPoints == null) {
             rightHandPoints = points;
             rightHandConf = hand.score.clamp(0.0, 1.0);
+            _rightHandResults++;
           } else if (leftHandPoints == null) {
             leftHandPoints = points;
             leftHandConf = hand.score.clamp(0.0, 1.0);
+            _leftHandResults++;
           }
         }
       }
@@ -183,6 +252,9 @@ class PoseExtractorService {
       final bool handPresent =
           rightHandPoints != null || leftHandPoints != null;
 
+      debugPrint('HAND DETECTOR CALLS = $_handDetectorCalls');
+      debugPrint('HAND DETECTOR RESULTS = $_handDetectorResults');
+      debugPrint('HAND DETECTOR ERRORS = $_handDetectorErrors');
       debugPrint('LEFT HAND LANDMARKS = ${leftHandPoints?.length ?? 0}');
       debugPrint('RIGHT HAND LANDMARKS = ${rightHandPoints?.length ?? 0}');
       if (handPresent) {
@@ -230,10 +302,23 @@ class PoseExtractorService {
         rightHandConfidence: rightHandConf,
         leftHandConfidence: leftHandConf,
         headConfidence: personCheck.personPresent ? personCheck.bestConfidence : faceHeadResult.confidence,
+        handDetectorCalls: _handDetectorCalls,
+        handDetectorResults: _handDetectorResults,
+        handDetectorErrors: _handDetectorErrors,
+        leftHandResults: _leftHandResults,
+        rightHandResults: _rightHandResults,
+        handDetectorException: handError,
+        handDetectorStackTrace: handStack,
       );
     } catch (e) {
       debugPrint('[PoseExtractorService] Error during extraction: $e');
-      return const ExtractedPoseFrame(hasActiveDetection: false);
+      return ExtractedPoseFrame(
+        hasActiveDetection: false,
+        handDetectorCalls: _handDetectorCalls,
+        handDetectorResults: _handDetectorResults,
+        handDetectorErrors: ++_handDetectorErrors,
+        handDetectorException: e.toString(),
+      );
     } finally {
       _isProcessing = false;
     }

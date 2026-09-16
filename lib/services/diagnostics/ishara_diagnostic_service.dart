@@ -288,16 +288,34 @@ class IsharaDiagnosticService extends ChangeNotifier {
     required bool rightHandDetected,
     required int rightHandLandmarks,
     required double rightHandConfidence,
+    int handDetectorCalls = 0,
+    int handDetectorResults = 0,
+    int handDetectorErrors = 0,
+    int leftHandResults = 0,
+    int rightHandResults = 0,
+    String? exceptionType,
+    String? stackTraceSnippet,
+    String? errorMessage,
   }) {
     if (_isFrozen) return;
 
     final bool hasAnyHand = leftHandDetected || rightHandDetected;
-    final String? errCode = !hasAnyHand
-        ? DiagnosticErrorCodes.e201NoHand
-        : null;
+    String? errCode;
+    String? errMsg = errorMessage;
+
+    if (handDetectorErrors > 0) {
+      errCode = DiagnosticErrorCodes.e203HandDetectorException;
+      errMsg ??= 'Hand detector threw exception: $exceptionType';
+    } else if (handDetectorCalls == 0 && _camera.framesReceived > 0) {
+      errCode = DiagnosticErrorCodes.e202HandDetectorNotCalled;
+      errMsg ??= 'Hand detector was never called';
+    } else if (!hasAnyHand) {
+      errCode = DiagnosticErrorCodes.e201NoHand;
+      errMsg ??= 'Neither hand detected in frame (0/21 landmarks)';
+    }
 
     _hands = HandsDiagnosticData(
-      status: hasAnyHand
+      status: (hasAnyHand && handDetectorErrors == 0)
           ? DiagnosticStageStatus.pass
           : DiagnosticStageStatus.fail,
       leftHandDetected: leftHandDetected,
@@ -306,15 +324,22 @@ class IsharaDiagnosticService extends ChangeNotifier {
       rightHandDetected: rightHandDetected,
       rightHandLandmarks: rightHandLandmarks,
       rightHandConfidence: rightHandConfidence,
+      handDetectorCalls: handDetectorCalls,
+      handDetectorResults: handDetectorResults,
+      handDetectorErrors: handDetectorErrors,
+      leftHandResults: leftHandResults,
+      rightHandResults: rightHandResults,
+      exceptionType: exceptionType,
+      stackTraceSnippet: stackTraceSnippet,
       errorCode: errCode,
-      errorMessage: errCode != null ? 'Neither hand detected in frame' : null,
+      errorMessage: errMsg,
     );
 
-    if (!hasAnyHand) {
+    if (!hasAnyHand || handDetectorErrors > 0) {
       _recordEvent(
         'HANDS',
         DiagnosticStageStatus.fail,
-        'No hands detected (L: $leftHandLandmarks, R: $rightHandLandmarks)',
+        errMsg ?? 'No hands detected (L: $leftHandLandmarks, R: $rightHandLandmarks)',
         errorCode: errCode,
       );
       _skipDownstreamFrom(5);

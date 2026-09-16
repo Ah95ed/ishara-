@@ -120,8 +120,9 @@ class IsharaRecognitionService {
     // ──────────────── A1: التحقق من Asset ────────────────
     int fileBytes = 0;
     double fileSizeMb = 0.0;
+    ByteData? byteData;
     try {
-      final byteData = await rootBundle.load(modelAssetPath);
+      byteData = await rootBundle.load(modelAssetPath);
       fileBytes = byteData.lengthInBytes;
       fileSizeMb = fileBytes / (1024 * 1024);
 
@@ -151,6 +152,57 @@ class IsharaRecognitionService {
         );
       }
 
+      // فحص هل الملف عبارة عن Git LFS Pointer (134 بايت)
+      if (fileBytes < 100 * 1024 * 1024) {
+        final preview = String.fromCharCodes(
+          byteData.buffer.asUint8List(byteData.offsetInBytes, min(200, fileBytes)),
+        );
+        if (preview.contains('git-lfs') || preview.startsWith('version https://git-lfs')) {
+          debugPrint('MODEL FILE = GIT LFS POINTER');
+          debugPrint('ERROR: ${DiagnosticErrorCodes.e003ModelIsGitLfsPointer}');
+          debugPrint('MODEL BYTES: $fileBytes (Expected ~107.55 MB)');
+
+          IsharaDiagnosticService().recordTfliteLoad(
+            fileFound: true,
+            isLoaded: false,
+            modelFileStatus: DiagnosticStageStatus.fail,
+            modelSizeBytes: fileBytes,
+            modelSizeMb: fileSizeMb,
+            interpreterStatus: DiagnosticStageStatus.waiting,
+            errorCode: DiagnosticErrorCodes.e003ModelIsGitLfsPointer,
+            errorMessage: 'MODEL FILE = GIT LFS POINTER ($fileBytes bytes). The real ~107.55 MB binary was not packaged into the Flutter asset bundle.',
+          );
+
+          return ModelDiagnosticResult(
+            fileFound: true,
+            fileBytes: fileBytes,
+            fileSizeMb: fileSizeMb,
+            interpreterCreated: false,
+            shapesMatch: false,
+            standaloneInferencePassed: false,
+            inferenceTimeMs: 0,
+            outputValid: false,
+            errorCode: DiagnosticErrorCodes.e003ModelIsGitLfsPointer,
+            errorMessage: 'MODEL FILE = GIT LFS POINTER ($fileBytes bytes)',
+          );
+        } else {
+          debugPrint('ERROR: Model size $fileBytes bytes is under 100MB threshold (Expected ~107.55 MB)');
+        }
+      }
+
+      // فحص TFLite Magic Header (TFL3)
+      if (fileBytes >= 8) {
+        final m0 = byteData.getUint8(4);
+        final m1 = byteData.getUint8(5);
+        final m2 = byteData.getUint8(6);
+        final m3 = byteData.getUint8(7);
+        final isTfl3 = m0 == 0x54 && m1 == 0x46 && m2 == 0x4C && m3 == 0x33;
+        if (!isTfl3) {
+          debugPrint('ERROR: Invalid TFLite magic header: $m0 $m1 $m2 $m3 (Expected TFL3)');
+        }
+      }
+
+      debugPrint('MODEL FILE: PASS');
       debugPrint('MODEL ASSET FOUND: true');
       debugPrint('MODEL BYTES: $fileBytes');
       debugPrint('MODEL SIZE MB: ${fileSizeMb.toStringAsFixed(2)} MB');
@@ -185,13 +237,17 @@ class IsharaRecognitionService {
       );
     }
 
-    // ──────────────── A2: إنشاء Interpreter ────────────────
+    // ──────────────── A2: إنشاء Interpreter من Buffer المؤكد ────────────────
     debugPrint('INTERPRETER CREATE START');
     try {
       final options = InterpreterOptions()..threads = numThreads;
       _interpreter?.close();
-      _interpreter = await Interpreter.fromAsset(
-        modelAssetPath,
+      final modelUint8List = byteData.buffer.asUint8List(
+        byteData.offsetInBytes,
+        byteData.lengthInBytes,
+      );
+      _interpreter = Interpreter.fromBuffer(
+        modelUint8List,
         options: options,
       );
       debugPrint('INTERPRETER CREATE SUCCESS');
