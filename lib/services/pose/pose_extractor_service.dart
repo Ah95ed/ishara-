@@ -183,6 +183,12 @@ class PoseExtractorService {
       final bool handPresent =
           rightHandPoints != null || leftHandPoints != null;
 
+      debugPrint('LEFT HAND LANDMARKS = ${leftHandPoints?.length ?? 0}');
+      debugPrint('RIGHT HAND LANDMARKS = ${rightHandPoints?.length ?? 0}');
+      if (handPresent) {
+        debugPrint('HAND = true');
+      }
+
       PersonPresenceResult personCheck = PersonPresenceResult.empty;
       try {
         personCheck = await _personPresenceService.detectFromCameraImage(
@@ -198,18 +204,22 @@ class PoseExtractorService {
       }
 
       final bool bodyPosePresent =
-          personCheck.personPresent || faceHeadResult.bodyPosePresent;
-      final bool headPresent = faceHeadResult.headPresent;
-      final bool facePresent = faceHeadResult.facePresent;
-      final bool lipsPresent = faceHeadResult.lipsPresent;
-      final bool personPresent = bodyPosePresent;
+          personCheck.posePresent || faceHeadResult.bodyPosePresent;
+      final bool headPresent = personCheck.headPresent || faceHeadResult.headPresent;
+      final bool facePresent = personCheck.facePresent || faceHeadResult.facePresent;
+      final bool lipsPresent = personCheck.lipsPresent || faceHeadResult.lipsPresent;
+      final bool personPresent = bodyPosePresent || headPresent || facePresent;
       final bool hasActiveDetection = handPresent && personPresent;
+
+      // أسبقية معالم الجسم العلوي والشفاه من كاشف الوضعية المباشر
+      final bodyPoints = personCheck.bodyPoints ?? faceHeadResult.headKeypoints;
+      final lipPoints = personCheck.lipPoints ?? faceHeadResult.lipKeypoints;
 
       return ExtractedPoseFrame(
         rightHand: rightHandPoints,
         leftHand: leftHandPoints,
-        lips: faceHeadResult.lipKeypoints,
-        body: faceHeadResult.headKeypoints,
+        lips: lipPoints,
+        body: bodyPoints,
         hasActiveDetection: hasActiveDetection,
         personPresent: personPresent,
         bodyPosePresent: bodyPosePresent,
@@ -219,7 +229,7 @@ class PoseExtractorService {
         handPresent: handPresent,
         rightHandConfidence: rightHandConf,
         leftHandConfidence: leftHandConf,
-        headConfidence: faceHeadResult.confidence,
+        headConfidence: personCheck.personPresent ? personCheck.bestConfidence : faceHeadResult.confidence,
       );
     } catch (e) {
       debugPrint('[PoseExtractorService] Error during extraction: $e');

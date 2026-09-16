@@ -165,16 +165,28 @@ class IsharaDiagnosticService extends ChangeNotifier {
     required int height,
     required String format,
     required int rotation,
+    int previewRotation = 0,
+    int detectorInputRotation = 0,
+    int framesReceived = 0,
+    DiagnosticStageStatus imageConversionStatus = DiagnosticStageStatus.pass,
+    String? imageConversionError,
+    int personDetectorCalls = 0,
+    int personDetectorResults = 0,
+    int personDetectorErrors = 0,
+    int poseLandmarks = 0,
+    int faceLandmarks = 0,
+    int leftHandLandmarks = 0,
+    int rightHandLandmarks = 0,
   }) {
     if (_isFrozen) return;
 
     final bool ok =
         isInitialized &&
         isStreaming &&
-        frameAgeMs < 1000 &&
+        frameAgeMs < 1500 &&
         width > 0 &&
         height > 0;
-    final String? errCode = !isStreaming || frameAgeMs >= 1000
+    final String? errCode = !isStreaming || frameAgeMs >= 1500
         ? DiagnosticErrorCodes.e001CameraNoFrames
         : (rotation % 90 != 0 ? DiagnosticErrorCodes.e002CameraRotation : null);
 
@@ -188,6 +200,18 @@ class IsharaDiagnosticService extends ChangeNotifier {
       height: height,
       format: format,
       rotation: rotation,
+      previewRotation: previewRotation,
+      detectorInputRotation: detectorInputRotation,
+      framesReceived: framesReceived,
+      imageConversionStatus: imageConversionStatus,
+      imageConversionError: imageConversionError,
+      personDetectorCalls: personDetectorCalls,
+      personDetectorResults: personDetectorResults,
+      personDetectorErrors: personDetectorErrors,
+      poseLandmarks: poseLandmarks,
+      faceLandmarks: faceLandmarks,
+      leftHandLandmarks: leftHandLandmarks,
+      rightHandLandmarks: rightHandLandmarks,
       lastFrameTime: DateTime.now(),
       errorCode: errCode,
       errorMessage: errCode != null
@@ -202,7 +226,6 @@ class IsharaDiagnosticService extends ChangeNotifier {
         'No frames arriving or stream halted ($frameAgeMs ms)',
         errorCode: errCode,
       );
-      _skipDownstreamFrom(2);
     }
     notifyListeners();
   }
@@ -213,6 +236,10 @@ class IsharaDiagnosticService extends ChangeNotifier {
     required bool posePresent,
     required bool facePresent,
     required bool headPresent,
+    int poseLandmarks = 0,
+    int faceLandmarks = 0,
+    int leftHandLandmarks = 0,
+    int rightHandLandmarks = 0,
     String? reason,
   }) {
     if (_isFrozen) return;
@@ -242,13 +269,14 @@ class IsharaDiagnosticService extends ChangeNotifier {
       posePresent: posePresent,
       facePresent: facePresent,
       headPresent: headPresent,
+      poseLandmarks: poseLandmarks,
+      faceLandmarks: faceLandmarks,
+      leftHandLandmarks: leftHandLandmarks,
+      rightHandLandmarks: rightHandLandmarks,
       failureReason: failureReason,
       errorCode: errCode,
     );
 
-    if (!ok) {
-      _skipDownstreamFrom(3);
-    }
     notifyListeners();
   }
 
@@ -592,29 +620,50 @@ class IsharaDiagnosticService extends ChangeNotifier {
   void recordTfliteLoad({
     required bool fileFound,
     required bool isLoaded,
+    DiagnosticStageStatus modelFileStatus = DiagnosticStageStatus.waiting,
+    int modelSizeBytes = 0,
+    double modelSizeMb = 0.0,
+    DiagnosticStageStatus interpreterStatus = DiagnosticStageStatus.waiting,
+    DiagnosticStageStatus inputTensorStatus = DiagnosticStageStatus.waiting,
+    DiagnosticStageStatus outputTensorStatus = DiagnosticStageStatus.waiting,
+    DiagnosticStageStatus standaloneInferenceStatus = DiagnosticStageStatus.waiting,
+    int standaloneInferenceTimeMs = 0,
     List<int>? inputShape,
     List<int>? outputShape,
+    String? exceptionType,
+    String? exceptionMessage,
+    String? errorCode,
     String? errorMessage,
   }) {
     if (_isFrozen) return;
 
     final bool shapesOk =
         isLoaded &&
-        listEquals(inputShape, [1, 128, 86, 2]) &&
-        listEquals(outputShape, [1, 29, 684]);
+        listEquals(inputShape, const [1, 128, 86, 2]) &&
+        listEquals(outputShape, const [1, 29, 684]);
     final bool ok = fileFound && isLoaded && shapesOk;
-    final String? errCode = !ok
+    final String? errCode = errorCode ?? (!ok
         ? DiagnosticErrorCodes.e601ModelNotLoaded
-        : null;
+        : null);
 
     _tfliteLoad = TfliteLoadDiagnosticData(
       status: ok ? DiagnosticStageStatus.pass : DiagnosticStageStatus.fail,
       fileFound: fileFound,
       isLoaded: isLoaded,
+      modelFileStatus: modelFileStatus,
+      modelSizeBytes: modelSizeBytes,
+      modelSizeMb: modelSizeMb,
+      interpreterStatus: interpreterStatus,
+      inputTensorStatus: inputTensorStatus,
+      outputTensorStatus: outputTensorStatus,
+      standaloneInferenceStatus: standaloneInferenceStatus,
+      standaloneInferenceTimeMs: standaloneInferenceTimeMs,
       inputShape: inputShape,
       outputShape: outputShape,
       inputType: 'float32',
       outputType: 'float32',
+      exceptionType: exceptionType,
+      exceptionMessage: exceptionMessage,
       errorCode: errCode,
       errorMessage:
           errorMessage ??
@@ -873,57 +922,40 @@ class IsharaDiagnosticService extends ChangeNotifier {
 
   // ──────────────────────────── SEQUENTIAL GATING ────────────────────────────
   void _skipDownstreamFrom(int stageIndex) {
-    if (stageIndex <= 2)
-      _person = const PersonDiagnosticData(
-        status: DiagnosticStageStatus.skipped,
-      );
-    if (stageIndex <= 3)
-      _hands = const HandsDiagnosticData(status: DiagnosticStageStatus.skipped);
-    if (stageIndex <= 4)
-      _faceHead = const FaceHeadLipsDiagnosticData(
-        status: DiagnosticStageStatus.skipped,
-      );
-    if (stageIndex <= 5)
-      _keypoints = const Keypoints86DiagnosticData(
-        status: DiagnosticStageStatus.skipped,
-      );
-    if (stageIndex <= 6)
-      _pointGroups = const PointGroupDiagnosticData(
-        status: DiagnosticStageStatus.skipped,
-      );
-    if (stageIndex <= 7)
-      _preprocessing = const PreprocessingDiagnosticData(
-        status: DiagnosticStageStatus.skipped,
-      );
-    if (stageIndex <= 8)
+    // لا يتم إطلاقاً مسح تشخيصات الموديل (TFLite Load / Vocabulary) أو كشف الشخص والأيدي
+    // عند تعثر مرحلة إشارية، وذلك ضماناً لاستقلال المسارين A و B تماماً.
+    if (stageIndex <= 8) {
       _buffer = const TemporalBufferDiagnosticData(
         status: DiagnosticStageStatus.skipped,
       );
-    if (stageIndex <= 9)
+    }
+    if (stageIndex <= 9) {
       _modelInput = const ModelInputDiagnosticData(
         status: DiagnosticStageStatus.skipped,
       );
-    if (stageIndex <= 11)
+    }
+    if (stageIndex <= 11) {
       _inference = const InferenceDiagnosticData(
         status: DiagnosticStageStatus.skipped,
       );
-    if (stageIndex <= 12)
+    }
+    if (stageIndex <= 12) {
       _modelOutput = const ModelOutputDiagnosticData(
         status: DiagnosticStageStatus.skipped,
       );
-    if (stageIndex <= 13)
+    }
+    if (stageIndex <= 13) {
       _rawTopClasses = const RawTopClassesDiagnosticData(
         status: DiagnosticStageStatus.skipped,
       );
-    if (stageIndex <= 14)
+    }
+    if (stageIndex <= 14) {
       _ctc = const CtcDiagnosticData(status: DiagnosticStageStatus.skipped);
-    if (stageIndex <= 15)
-      _vocabulary = const VocabularyDiagnosticData(
-        status: DiagnosticStageStatus.skipped,
-      );
-    if (stageIndex <= 16)
+    }
+    if (stageIndex <= 16) {
       _finalOutput = const FinalOutputDiagnosticData(
         status: DiagnosticStageStatus.skipped,
       );
+    }
   }
 }

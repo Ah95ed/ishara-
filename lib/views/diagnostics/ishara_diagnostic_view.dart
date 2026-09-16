@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:ishara/providers/sign_recognition_provider.dart';
 import 'package:ishara/services/diagnostics/diagnostic_models.dart';
 import 'package:ishara/services/diagnostics/ishara_diagnostic_service.dart';
+import 'package:ishara/services/tflite/ishara_recognition_service.dart';
+import 'package:provider/provider.dart';
 
 class IsharaDiagnosticView extends StatefulWidget {
   const IsharaDiagnosticView({super.key});
@@ -10,23 +13,61 @@ class IsharaDiagnosticView extends StatefulWidget {
   State<IsharaDiagnosticView> createState() => _IsharaDiagnosticViewState();
 }
 
-class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView> {
+class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView>
+    with SingleTickerProviderStateMixin {
   final IsharaDiagnosticService _diagService = IsharaDiagnosticService();
+  late final TabController _tabController;
+  bool _isRunningModelDiagnostic = false;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 3, vsync: this);
     _diagService.addListener(_onServiceUpdate);
   }
 
   @override
   void dispose() {
+    _tabController.dispose();
     _diagService.removeListener(_onServiceUpdate);
     super.dispose();
   }
 
   void _onServiceUpdate() {
     if (mounted) setState(() {});
+  }
+
+  Future<void> _runModelDiagnostics() async {
+    if (_isRunningModelDiagnostic) return;
+    setState(() => _isRunningModelDiagnostic = true);
+
+    try {
+      final signRecognition = context.read<SignRecognitionProvider>();
+      final result = await signRecognition.runModelDiagnostics();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.outputValid
+                ? '✅ نجح فحص الموديل المستقل: MODEL EXECUTION = PASS (${result.inferenceTimeMs} ms)'
+                : '❌ فشل فحص الموديل: [${result.errorCode}] ${result.errorMessage}',
+          ),
+          backgroundColor: result.outputValid ? Colors.teal : Colors.redAccent,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('⚠️ حدث خطأ أثناء تشغيل الفحص: $e'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isRunningModelDiagnostic = false);
+    }
   }
 
   void _copySnapshot() {
@@ -97,7 +138,10 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView> {
           children: [
             Icon(Icons.biotech_rounded, color: Colors.amber),
             SizedBox(width: 8),
-            Text('تشخيص الـ Pipeline (Diagnostic Mode)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text(
+              'لوحة التشخيص الشاملة (Diagnostics)',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
           ],
         ),
         actions: [
@@ -121,6 +165,26 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView> {
             onPressed: _showJsonModal,
           ),
         ],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.amber,
+          labelColor: Colors.amber,
+          unselectedLabelColor: Colors.grey,
+          tabs: const [
+            Tab(
+              icon: Icon(Icons.memory_rounded),
+              text: 'النموذج (MODEL)',
+            ),
+            Tab(
+              icon: Icon(Icons.videocam_rounded),
+              text: 'الكاميرا (CAMERA)',
+            ),
+            Tab(
+              icon: Icon(Icons.auto_awesome_motion_rounded),
+              text: 'المسار (PIPELINE)',
+            ),
+          ],
+        ),
       ),
       body: Directionality(
         textDirection: TextDirection.rtl,
@@ -137,232 +201,22 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView> {
                     SizedBox(width: 8),
                     Text(
                       'تم تجميد الشاشة للمعاينة (FROZEN SNAPSHOT) — البيانات ثابتة الآن',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.amber),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                        color: Colors.amber,
+                      ),
                     ),
                   ],
                 ),
               ),
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.all(12),
+              child: TabBarView(
+                controller: _tabController,
                 children: [
-                  _buildControlHeader(),
-                  const SizedBox(height: 12),
-                  _buildStageCard(
-                    stageNumber: 1,
-                    title: 'الكاميرا (CAMERA)',
-                    status: _diagService.camera.status,
-                    errorCode: _diagService.camera.errorCode,
-                    details: [
-                      'الحالة: ${_diagService.camera.isStreaming ? "بث نشط" : "متوقف"}',
-                      'معدل الإطارات: ${_diagService.camera.fps.toStringAsFixed(1)} FPS',
-                      'عمر الفريم: ${_diagService.camera.frameAgeMs} ms',
-                      'الأبعاد: ${_diagService.camera.width}x${_diagService.camera.height}',
-                      'التنسيق: ${_diagService.camera.format}',
-                      'الدوران: ${_diagService.camera.rotation}°',
-                    ],
-                  ),
-                  _buildStageCard(
-                    stageNumber: 2,
-                    title: 'كشف وجود الشخص (PERSON DETECTION)',
-                    status: _diagService.person.status,
-                    errorCode: _diagService.person.errorCode,
-                    failureReason: _diagService.person.failureReason,
-                    details: [
-                      'وجود الشخص: ${_diagService.person.personPresent ? "نعم ✅" : "لا ❌"}',
-                      'وضعية الجسم (Pose): ${_diagService.person.posePresent ? "موجود ✅" : "غير موجود ❌"}',
-                      'الرأس (Head): ${_diagService.person.headPresent ? "موجود ✅" : "غير موجود ❌"}',
-                      'الوجه (Face): ${_diagService.person.facePresent ? "موجود ✅" : "غير موجود ❌"}',
-                    ],
-                  ),
-                  _buildStageCard(
-                    stageNumber: 3,
-                    title: 'كشف الأيدي (HAND DETECTION)',
-                    status: _diagService.hands.status,
-                    errorCode: _diagService.hands.errorCode,
-                    failureReason: _diagService.hands.errorMessage,
-                    details: [
-                      'اليد اليسرى: ${_diagService.hands.leftHandDetected ? "مكتشفة (${_diagService.hands.leftHandLandmarks} نقطة) - ثقة: ${(_diagService.hands.leftHandConfidence * 100).toStringAsFixed(1)}%" : "غير مكتشفة (0 نقاط)"}',
-                      'اليد اليمنى: ${_diagService.hands.rightHandDetected ? "مكتشفة (${_diagService.hands.rightHandLandmarks} نقطة) - ثقة: ${(_diagService.hands.rightHandConfidence * 100).toStringAsFixed(1)}%" : "غير مكتشفة (0 نقاط)"}',
-                    ],
-                  ),
-                  _buildStageCard(
-                    stageNumber: 4,
-                    title: 'معالم الوجه والرأس والشفاه (FACE / HEAD / LIPS)',
-                    status: _diagService.faceHead.status,
-                    details: [
-                      'الرأس: ${_diagService.faceHead.headDetected ? "نعم (${_diagService.faceHead.validHeadPoints}/25 نقطة)" : "لا"}',
-                      'الوجه: ${_diagService.faceHead.faceDetected ? "نعم" : "لا"}',
-                      'الشفاه: ${_diagService.faceHead.lipsDetected ? "نعم (${_diagService.faceHead.validLipPoints}/19 نقطة)" : "لا (مستقلة عن الشخص)"}',
-                      'درجة الثقة: ${(_diagService.faceHead.confidence * 100).toStringAsFixed(1)}%',
-                    ],
-                  ),
-                  _buildStageCard(
-                    stageNumber: 5,
-                    title: 'فحص الـ 86 نقطة بالضبط (EXACT 86 KEYPOINTS)',
-                    status: _diagService.keypoints.status,
-                    errorCode: _diagService.keypoints.errorCode,
-                    failureReason: _diagService.keypoints.errorMessage,
-                    details: [
-                      'عدد النقاط الإجمالي: ${_diagService.keypoints.keypointCount} / 86',
-                      'النقاط الصالحة: ${_diagService.keypoints.validKeypoints}',
-                      'النقاط المفقودة: ${_diagService.keypoints.missingKeypoints}',
-                      'القيم غير المعرفة (NaN): ${_diagService.keypoints.nanCount}',
-                      'القيم اللانهائية (Inf): ${_diagService.keypoints.infinityCount}',
-                      'النقاط الصفرية: ${_diagService.keypoints.zeroCount}',
-                      'عينة P0 (معصم أيمن): ${_diagService.keypoints.sampleP0}',
-                      'عينة P1: ${_diagService.keypoints.sampleP1}',
-                      'عينة P2: ${_diagService.keypoints.sampleP2}',
-                    ],
-                  ),
-                  _buildStageCard(
-                    stageNumber: 6,
-                    title: 'فئات النقاط حسب التدريب (POINT GROUPS)',
-                    status: _diagService.pointGroups.status,
-                    errorCode: _diagService.pointGroups.errorCode,
-                    failureReason: _diagService.pointGroups.errorMessage,
-                    details: [
-                      'نقاط الأيدي الإجمالية: ${_diagService.pointGroups.totalHandValid} / 42',
-                      '  - يد يمنى [0..20]: ${_diagService.pointGroups.rightHandValid} / 21',
-                      '  - يد يسرى [21..41]: ${_diagService.pointGroups.leftHandValid} / 21',
-                      'نقاط الشفاه [42..60]: ${_diagService.pointGroups.faceLipValid} / 19',
-                      'نقاط الجسم العلوي [61..85]: ${_diagService.pointGroups.bodyValid} / 25',
-                    ],
-                  ),
-                  _buildStageCard(
-                    stageNumber: 7,
-                    title: 'المعالجة المسبقة والتطبيع (PREPROCESSING)',
-                    status: _diagService.preprocessing.status,
-                    errorCode: _diagService.preprocessing.errorCode,
-                    failureReason: _diagService.preprocessing.errorMessage,
-                    details: [
-                      'المدخلات الخام: X=[${_diagService.preprocessing.rawMinX.toStringAsFixed(2)} .. ${_diagService.preprocessing.rawMaxX.toStringAsFixed(2)}], Y=[${_diagService.preprocessing.rawMinY.toStringAsFixed(2)} .. ${_diagService.preprocessing.rawMaxY.toStringAsFixed(2)}]',
-                      'بعد التطبيع (datasetv2.py): أدنى=${_diagService.preprocessing.normMin.toStringAsFixed(2)}, أقصى=${_diagService.preprocessing.normMax.toStringAsFixed(2)}, متوسط=${_diagService.preprocessing.normMean.toStringAsFixed(3)}',
-                      'فحص NaN: ${_diagService.preprocessing.hasNan ? "يوجد NaN ❌" : "سليم ✅"}',
-                      'فحص القيم المتطرفة: ${_diagService.preprocessing.hasExtremeValues ? "توجد قيم شاذة ❌" : "ضمن النطاق ✅"}',
-                    ],
-                  ),
-                  _buildStageCard(
-                    stageNumber: 8,
-                    title: 'المخزن الزمني للإطارات (TEMPORAL BUFFER)',
-                    status: _diagService.buffer.status,
-                    errorCode: _diagService.buffer.errorCode,
-                    failureReason: _diagService.buffer.errorMessage,
-                    details: [
-                      'امتلاء المخزن: ${_diagService.buffer.currentFrames} / ${_diagService.buffer.requiredFrames}',
-                      'إطارات شخص صالحة: ${_diagService.buffer.personFrames}',
-                      'إطارات أيدي صالحة: ${_diagService.buffer.handFrames}',
-                      'إطارات رأس صالحة: ${_diagService.buffer.headFrames}',
-                    ],
-                  ),
-                  _buildStageCard(
-                    stageNumber: 9,
-                    title: 'مصفوفة إدخال النموذج (EXACT MODEL INPUT)',
-                    status: _diagService.modelInput.status,
-                    errorCode: _diagService.modelInput.errorCode,
-                    failureReason: _diagService.modelInput.errorMessage,
-                    details: [
-                      'أبعاد المصفوفة: ${_diagService.modelInput.shape}',
-                      'نوع البيانات: ${_diagService.modelInput.dtype}',
-                      'عدد القيم الإجمالي: ${_diagService.modelInput.totalValues} (المتوقع 22016)',
-                      'إحصائيات الإدخال: أدنى=${_diagService.modelInput.min.toStringAsFixed(2)}, أقصى=${_diagService.modelInput.max.toStringAsFixed(2)}, متوسط=${_diagService.modelInput.mean.toStringAsFixed(3)}',
-                      'نسبة الأصفار: ${_diagService.modelInput.zeroPercentage.toStringAsFixed(1)}%',
-                      'عدد NaN: ${_diagService.modelInput.nanCount}',
-                    ],
-                  ),
-                  _buildStageCard(
-                    stageNumber: 10,
-                    title: 'تحميل نموذج TFLite (TFLITE LOADING)',
-                    status: _diagService.tfliteLoad.status,
-                    errorCode: _diagService.tfliteLoad.errorCode,
-                    failureReason: _diagService.tfliteLoad.errorMessage,
-                    details: [
-                      'ملف ishara_model.tflite: ${_diagService.tfliteLoad.fileFound ? "موجود ✅" : "مفقود ❌"}',
-                      'حالة التحميل: ${_diagService.tfliteLoad.isLoaded ? "جاهز ومُحمّل ✅" : "غير جاهز"}',
-                      'شكل الدخل المتوقع: [1, 128, 86, 2] | الفعلي: ${_diagService.tfliteLoad.inputShape}',
-                      'شكل الخرج المتوقع: [1, 29, 684] | الفعلي: ${_diagService.tfliteLoad.outputShape}',
-                    ],
-                  ),
-                  _buildStageCard(
-                    stageNumber: 11,
-                    title: 'تشغيل الاستنتاج (TFLITE INFERENCE)',
-                    status: _diagService.inference.status,
-                    errorCode: _diagService.inference.errorCode,
-                    failureReason: _diagService.inference.exceptionMessage,
-                    details: [
-                      'زمن الاستنتاج: ${_diagService.inference.inferenceTimeMs} ms',
-                      if (_diagService.inference.exceptionType != null)
-                        'نوع الاستثناء: ${_diagService.inference.exceptionType}',
-                      if (_diagService.inference.stackTraceSnippet != null)
-                        'تتبع الخطأ: ${_diagService.inference.stackTraceSnippet}',
-                    ],
-                  ),
-                  _buildStageCard(
-                    stageNumber: 12,
-                    title: 'التحقق من مخرجات النموذج (MODEL OUTPUT VALIDATION)',
-                    status: _diagService.modelOutput.status,
-                    errorCode: _diagService.modelOutput.errorCode,
-                    failureReason: _diagService.modelOutput.errorMessage,
-                    details: [
-                      'أبعاد المخرجات: ${_diagService.modelOutput.outputShape}',
-                      'فحص NaN: ${_diagService.modelOutput.nanCount}',
-                      'فحص Inf: ${_diagService.modelOutput.infinityCount}',
-                      'مخرجات صفرية بالكامل: ${_diagService.modelOutput.isAllZeros ? "نعم ❌" : "لا ✅"}',
-                      'إحصائيات الـ Logits: أدنى=${_diagService.modelOutput.min.toStringAsFixed(2)}, أقصى=${_diagService.modelOutput.max.toStringAsFixed(2)}',
-                    ],
-                  ),
-                  _buildStageCard(
-                    stageNumber: 13,
-                    title: 'أعلى الفئات الخام (RAW TOP CLASSES)',
-                    status: _diagService.rawTopClasses.status,
-                    details: [
-                      'نسبة Blank الإجمالية: ${_diagService.rawTopClasses.blankRatio}',
-                      'هل Blank مسيطر: ${_diagService.rawTopClasses.isBlankDominant ? "نعم (حركة غير إشارية)" : "لا"}',
-                      ..._diagService.rawTopClasses.top5.map(
-                        (c) => '#${c.rank}: معرف ${c.classId} -> "${c.gloss}" (${c.score})',
-                      ),
-                    ],
-                  ),
-                  _buildStageCard(
-                    stageNumber: 14,
-                    title: 'مفكك تشفير CTC (CTC DECODER)',
-                    status: _diagService.ctc.status,
-                    errorCode: _diagService.ctc.errorCode,
-                    failureReason: _diagService.ctc.errorMessage,
-                    details: [
-                      'المعرفات الخام (RAW IDS): ${_diagService.ctc.rawIds.take(15).toList()}${_diagService.ctc.rawIds.length > 15 ? "..." : ""}',
-                      'بعد دمج التكرارات (COLLAPSED): ${_diagService.ctc.collapsedIds}',
-                      'بعد إزالة الـ Blank (CLEAN): ${_diagService.ctc.afterBlankRemovalIds}',
-                      'الكلمات المستخرجة: ${_diagService.ctc.decodedGlosses}',
-                      'متوسط الثقة: ${(_diagService.ctc.averageConfidence * 100).toStringAsFixed(1)}%',
-                    ],
-                  ),
-                  _buildStageCard(
-                    stageNumber: 15,
-                    title: 'قاموس المفردات (VOCABULARY MAPPING)',
-                    status: _diagService.vocabulary.status,
-                    errorCode: _diagService.vocabulary.errorCode,
-                    failureReason: _diagService.vocabulary.errorMessage,
-                    details: [
-                      'إجمالي الكلمات: ${_diagService.vocabulary.totalClasses} (المتوقع 684)',
-                      'عينة من القاموس:',
-                      ..._diagService.vocabulary.verifiedMappings.take(5).map((m) => '  $m'),
-                    ],
-                  ),
-                  _buildStageCard(
-                    stageNumber: 16,
-                    title: 'النتيجة النهائية والقبول (FINAL OUTPUT & DECISION)',
-                    status: _diagService.finalOutput.status,
-                    details: [
-                      'نتيجة الموديل الخام (RAW): "${_diagService.finalOutput.rawModelGloss ?? "—"}"',
-                      'القرار النهائي (DECISION): ${_diagService.finalOutput.decision}',
-                      'الكلمة المعتمدة (CONFIRMED): "${_diagService.finalOutput.finalGloss ?? "—"}"',
-                      if (_diagService.finalOutput.rejectionReason != null)
-                        'سبب الرفض: ${_diagService.finalOutput.rejectionReason}',
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  _buildEventsHistorySection(),
+                  _buildModelSection(),
+                  _buildCameraSection(),
+                  _buildPipelineSection(),
                 ],
               ),
             ),
@@ -372,55 +226,398 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView> {
     );
   }
 
-  Widget _buildControlHeader() {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 1: MODEL SECTION (PATH A)
+  // ═══════════════════════════════════════════════════════════════════════════
+  Widget _buildModelSection() {
+    final tflite = _diagService.tfliteLoad;
+    final modelOutput = _diagService.modelOutput;
+    final vocab = _diagService.vocabulary;
+
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        // Action Card to Run Diagnostics on Demand
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.teal.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.teal.withValues(alpha: 0.4)),
+          ),
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _diagService.isFrozen ? Colors.amber : Colors.greenAccent,
+              const Icon(Icons.model_training, color: Colors.teal, size: 28),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text(
+                      'فحص النموذج المستقل (PATH A)',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _diagService.isFrozen ? 'الحالة: مجمدة للفحص' : 'الحالة: تشخيص حي ومباشر',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                  ),
-                ],
+                    Text(
+                      'اختبار ملف الأصول، Interpreter، Tensors، واستنتاج ببيانات وهمية بمعزل عن الكاميرا',
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blueAccent,
+                  backgroundColor: Colors.teal,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 ),
-                icon: const Icon(Icons.camera_alt_outlined, size: 16),
-                label: const Text('لقطة فورية للتقرير', style: TextStyle(fontSize: 12)),
-                onPressed: _copySnapshot,
+                icon: _isRunningModelDiagnostic
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.play_arrow, size: 16),
+                label: Text(
+                  _isRunningModelDiagnostic ? 'جارٍ الفحص...' : 'فحص الآن',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                onPressed: _isRunningModelDiagnostic ? null : _runModelDiagnostics,
               ),
             ],
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 12),
+
+        // 1. MODEL FILE
+        _buildItemCard(
+          title: 'ملف النموذج (MODEL FILE)',
+          status: tflite.modelFileStatus,
+          errorCode: tflite.errorCode,
+          details: [
+            'المسار: ${IsharaRecognitionService.modelAssetPath}',
+            'حجم الملف بالبايت: ${tflite.modelSizeBytes} بايت',
+            'الحجم بالميغابايت: ${tflite.modelSizeMb.toStringAsFixed(2)} MB',
+            'حالة الملف: ${tflite.fileFound ? "موجود وسليم بنجاح ✅" : "غير موجود ❌"}',
+          ],
+        ),
+
+        // 2. INTERPRETER
+        _buildItemCard(
+          title: 'محرك التشغيل (INTERPRETER)',
+          status: tflite.interpreterStatus,
+          errorCode: tflite.errorCode,
+          failureReason: tflite.exceptionMessage,
+          details: [
+            'الحالة: ${tflite.interpreterStatus == DiagnosticStageStatus.pass ? "تم الإنشاء بنجاح ✅" : "فشل الإنشاء ❌"}',
+            if (tflite.exceptionType != null) 'نوع الاستثناء: ${tflite.exceptionType}',
+            if (tflite.exceptionMessage != null) 'رسالة الخطأ: ${tflite.exceptionMessage}',
+          ],
+        ),
+
+        // 3. INPUT TENSOR
+        _buildItemCard(
+          title: 'مصفوفة الإدخال (INPUT TENSOR)',
+          status: tflite.inputTensorStatus,
+          details: [
+            'الأبعاد المتوقعة: [1, 128, 86, 2]',
+            'الأبعاد الفعلية: ${tflite.inputShape ?? "غير متوفر"}',
+            'نوع البيانات المتوقع: FLOAT32 (22,016 قيمة)',
+            'نوع البيانات الفعلي: ${tflite.inputType}',
+            'التطابق: ${tflite.inputTensorStatus == DiagnosticStageStatus.pass ? "مطابق تماماً ✅" : "غير مطابق ❌"}',
+          ],
+        ),
+
+        // 4. OUTPUT TENSOR
+        _buildItemCard(
+          title: 'مصفوفة الإخراج (OUTPUT TENSOR)',
+          status: tflite.outputTensorStatus,
+          details: [
+            'الأبعاد المتوقعة: [1, 29, 684]',
+            'الأبعاد الفعلية: ${tflite.outputShape ?? "غير متوفر"}',
+            'نوع البيانات المتوقع: FLOAT32',
+            'نوع البيانات الفعلي: ${tflite.outputType}',
+            'التطابق: ${tflite.outputTensorStatus == DiagnosticStageStatus.pass ? "مطابق تماماً ✅" : "غير مطابق ❌"}',
+          ],
+        ),
+
+        // 5. STANDALONE INFERENCE
+        _buildItemCard(
+          title: 'الاستنتاج المستقل (STANDALONE INFERENCE)',
+          status: tflite.standaloneInferenceStatus,
+          errorCode: tflite.errorCode,
+          details: [
+            'زمن التنفيذ: ${tflite.standaloneInferenceTimeMs} ms',
+            'حالة الاختبار بمدخلات وهمية (22,016 قيمة Float32): ${tflite.standaloneInferenceStatus.displayText}',
+          ],
+        ),
+
+        // 6. MODEL OUTPUT VALIDATION
+        _buildItemCard(
+          title: 'التحقق من مخرجات الموديل (MODEL OUTPUT)',
+          status: modelOutput.status,
+          errorCode: modelOutput.errorCode,
+          failureReason: modelOutput.errorMessage,
+          details: [
+            'فحص القيم غير المعرفة (NaN): ${modelOutput.nanCount}',
+            'فحص القيم اللانهائية (Inf): ${modelOutput.infinityCount}',
+            'فحص المخرجات الصفرية (All Zeros): ${modelOutput.isAllZeros ? "كلها أصفار ❌" : "سليمة ✅"}',
+            'إحصائيات Logits: أدنى=${modelOutput.min.toStringAsFixed(2)}, أقصى=${modelOutput.max.toStringAsFixed(2)}, متوسط=${modelOutput.mean.toStringAsFixed(3)}',
+          ],
+        ),
+
+        // 7. VOCABULARY
+        _buildItemCard(
+          title: 'قاموس المفردات (VOCABULARY)',
+          status: vocab.status,
+          errorCode: vocab.errorCode,
+          failureReason: vocab.errorMessage,
+          details: [
+            'عدد الفئات الإجمالي: ${vocab.totalClasses} (المتوقع 684)',
+            'رمز Blank في CTC: المعرف 0 (CTC Blank ID = 0)',
+            'المعرفات الصالحة للكلمات: 1 إلى 683',
+            'حالة القاموس: ${vocab.isValid ? "صحيح ومكتمل ✅" : "توجد معرفات مفقودة ❌"}',
+            'عينة من المفردات:',
+            ...vocab.verifiedMappings.take(5).map((m) => '  $m'),
+          ],
+        ),
+      ],
     );
   }
 
-  Widget _buildStageCard({
-    required int stageNumber,
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 2: CAMERA & PERSON DETECTION (PATH B)
+  // ═══════════════════════════════════════════════════════════════════════════
+  Widget _buildCameraSection() {
+    final camera = _diagService.camera;
+    final person = _diagService.person;
+    final hands = _diagService.hands;
+
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        // 1. CAMERA
+        _buildItemCard(
+          title: 'الكاميرا (CAMERA)',
+          status: camera.status,
+          errorCode: camera.errorCode,
+          details: [
+            'حالة البث: ${camera.isStreaming ? "نشط ويبث الإطارات ✅" : "متوقف ❌"}',
+            'معدل الإطارات: ${camera.fps.toStringAsFixed(1)} FPS',
+            'عمر الإطار الأخير: ${camera.frameAgeMs} ms',
+            'الدقة: ${camera.width}x${camera.height}',
+            'الصيغة: ${camera.format}',
+            'الدوران: ${camera.rotation}°',
+          ],
+        ),
+
+        // 2. FRAMES RECEIVED
+        _buildItemCard(
+          title: 'الإطارات المستلمة (FRAMES RECEIVED)',
+          status: camera.framesReceived > 0
+              ? DiagnosticStageStatus.pass
+              : DiagnosticStageStatus.waiting,
+          details: [
+            'إجمالي الإطارات المستلمة من الكاميرا: ${camera.framesReceived}',
+            'وقت آخر إطار: ${camera.lastFrameTime != null ? "${camera.lastFrameTime!.hour}:${camera.lastFrameTime!.minute}:${camera.lastFrameTime!.second}" : "لم يستلم بعد"}',
+          ],
+        ),
+
+        // 3. IMAGE CONVERSION
+        _buildItemCard(
+          title: 'تحويل الصورة للكاشف (IMAGE CONVERSION)',
+          status: camera.imageConversionStatus,
+          failureReason: camera.imageConversionError,
+          details: [
+            'طريقة التحويل: دمج مستمر لطبقات YUV420 مع معالجة الـ Strides ومطابقة أبعاد NV21 لـ ML Kit',
+            'الحالة: ${camera.imageConversionStatus.displayText}',
+            if (camera.imageConversionError != null) 'الخطأ: ${camera.imageConversionError}',
+          ],
+        ),
+
+        // 4. PERSON DETECTOR CALLS & METRICS
+        _buildItemCard(
+          title: 'استدعاءات كاشف الشخص (PERSON DETECTOR METRICS)',
+          status: camera.personDetectorCalls > 0
+              ? (camera.personDetectorErrors == 0
+                  ? DiagnosticStageStatus.pass
+                  : DiagnosticStageStatus.fail)
+              : DiagnosticStageStatus.waiting,
+          details: [
+            'عدد الاستدعاءات (Calls): ${camera.personDetectorCalls}',
+            'عدد النتائج الناجحة (Results): ${camera.personDetectorResults}',
+            'عدد الأخطاء (Errors): ${camera.personDetectorErrors}',
+          ],
+        ),
+
+        // 5. PERSON PRESENCE (Rule: pose || head || face)
+        _buildItemCard(
+          title: 'حضور الشخص (PERSON PRESENCE)',
+          status: person.status,
+          errorCode: person.errorCode,
+          failureReason: person.failureReason,
+          details: [
+            'الشخص موجود: ${person.personPresent ? "نعم ✅" : "لا ❌"}',
+            'قاعدة التحقق: personPresent = posePresent || headPresent || facePresent',
+            'الجسم (Pose): ${person.posePresent ? "مكتشف ✅" : "غير مكتشف ❌"}',
+            'الرأس (Head): ${person.headPresent ? "مكتشف ✅" : "غير مكتشف ❌"}',
+            'الوجه (Face): ${person.facePresent ? "مكتشف ✅" : "غير مكتشف ❌"}',
+          ],
+        ),
+
+        // 6. LANDMARK COUNTS (POSE, FACE, HANDS)
+        _buildItemCard(
+          title: 'معالم الجسم والوجه واليدين (LANDMARKS)',
+          status: (camera.poseLandmarks > 0 || camera.faceLandmarks > 0)
+              ? DiagnosticStageStatus.pass
+              : DiagnosticStageStatus.waiting,
+          details: [
+            'معالم وضعية الجسم (Pose): [${camera.poseLandmarks} landmarks] (25 معلماً علوياً)',
+            'معالم الوجه/الشفاه (Face/Lips): [${camera.faceLandmarks} landmarks] (19 نقطة شفاه)',
+            'اليد اليسرى (Left Hand): [${camera.leftHandLandmarks} landmarks] (الثقة: ${(hands.leftHandConfidence * 100).toStringAsFixed(1)}%)',
+            'اليد اليمنى (Right Hand): [${camera.rightHandLandmarks} landmarks] (الثقة: ${(hands.rightHandConfidence * 100).toStringAsFixed(1)}%)',
+          ],
+        ),
+
+        // 7. ROTATION
+        _buildItemCard(
+          title: 'زوايا الدوران (ROTATIONS)',
+          status: DiagnosticStageStatus.pass,
+          details: [
+            'زاوية معاينة الشاشة (Preview Rotation): ${camera.previewRotation}°',
+            'زاوية إدخال الكاشف (Detector Input Rotation): ${camera.detectorInputRotation}°',
+          ],
+        ),
+      ],
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 3: SIGN PIPELINE (KEYPOINTS -> BUFFER -> CTC)
+  // ═══════════════════════════════════════════════════════════════════════════
+  Widget _buildPipelineSection() {
+    final keypoints = _diagService.keypoints;
+    final groups = _diagService.pointGroups;
+    final preprocess = _diagService.preprocessing;
+    final buffer = _diagService.buffer;
+    final input = _diagService.modelInput;
+    final inference = _diagService.inference;
+    final ctc = _diagService.ctc;
+    final finalOut = _diagService.finalOutput;
+
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        // 1. KEYPOINTS (86 EXACT)
+        _buildItemCard(
+          title: 'الـ 86 نقطة بالضبط (86 KEYPOINTS)',
+          status: keypoints.status,
+          errorCode: keypoints.errorCode,
+          failureReason: keypoints.errorMessage,
+          details: [
+            'عدد النقاط الإجمالي: [${keypoints.validKeypoints} / 86]',
+            'المفقود: ${keypoints.missingKeypoints}',
+            'الأيدي [0..41]: ${groups.totalHandValid} / 42 (يمنى: ${groups.rightHandValid}/21، يسرى: ${groups.leftHandValid}/21)',
+            'الشفاه [42..60]: ${groups.faceLipValid} / 19',
+            'الجسم العلوي [61..85]: ${groups.bodyValid} / 25',
+            'عينة P0 (معصم أيمن): ${keypoints.sampleP0}',
+            'عينة P1: ${keypoints.sampleP1}',
+            'عينة P2: ${keypoints.sampleP2}',
+          ],
+        ),
+
+        // 2. PREPROCESSING
+        _buildItemCard(
+          title: 'المعالجة المسبقة والتطبيع (PREPROCESSING)',
+          status: preprocess.status,
+          errorCode: preprocess.errorCode,
+          failureReason: preprocess.errorMessage,
+          details: [
+            'المدخلات الخام: X=[${preprocess.rawMinX.toStringAsFixed(2)} .. ${preprocess.rawMaxX.toStringAsFixed(2)}], Y=[${preprocess.rawMinY.toStringAsFixed(2)} .. ${preprocess.rawMaxY.toStringAsFixed(2)}]',
+            'بعد التطبيع الصارم: أدنى=${preprocess.normMin.toStringAsFixed(2)}, أقصى=${preprocess.normMax.toStringAsFixed(2)}, متوسط=${preprocess.normMean.toStringAsFixed(3)}',
+            'فحص NaN: ${preprocess.hasNan ? "يوجد NaN ❌" : "سليم ✅"}',
+          ],
+        ),
+
+        // 3. BUFFER
+        _buildItemCard(
+          title: 'المخزن الزمني (TEMPORAL BUFFER)',
+          status: buffer.status,
+          errorCode: buffer.errorCode,
+          failureReason: buffer.errorMessage,
+          details: [
+            'امتلاء المخزن: [${buffer.currentFrames} / 128]',
+            'إطارات شخص صالحة: ${buffer.personFrames}',
+            'إطارات أيدي صالحة: ${buffer.handFrames}',
+            'إطارات رأس صالحة: ${buffer.headFrames}',
+          ],
+        ),
+
+        // 4. REAL MODEL INPUT
+        _buildItemCard(
+          title: 'مدخلات النموذج الحقيقي (REAL INPUT)',
+          status: input.status,
+          errorCode: input.errorCode,
+          failureReason: input.errorMessage,
+          details: [
+            'الشكل: ${input.shape} (المتوقع [1, 128, 86, 2])',
+            'إجمالي القيم: ${input.totalValues} (المتوقع 22016)',
+            'نسبة الأصفار: ${input.zeroPercentage.toStringAsFixed(1)}%',
+            'إحصائيات: أدنى=${input.min.toStringAsFixed(2)}, أقصى=${input.max.toStringAsFixed(2)}',
+          ],
+        ),
+
+        // 5. REAL INFERENCE
+        _buildItemCard(
+          title: 'استنتاج النموذج الحقيقي (REAL INFERENCE)',
+          status: inference.status,
+          errorCode: inference.errorCode,
+          failureReason: inference.exceptionMessage,
+          details: [
+            'زمن الاستنتاج: ${inference.inferenceTimeMs} ms',
+            if (inference.exceptionType != null) 'الاستثناء: ${inference.exceptionType}: ${inference.exceptionMessage}',
+          ],
+        ),
+
+        // 6. CTC DECODER
+        _buildItemCard(
+          title: 'مفكك تشفير CTC (CTC DECODER)',
+          status: ctc.status,
+          errorCode: ctc.errorCode,
+          failureReason: ctc.errorMessage,
+          details: [
+            'المعرفات الخام: ${ctc.rawIds.take(15).toList()}${ctc.rawIds.length > 15 ? "..." : ""}',
+            'بعد دمج التكرارات: ${ctc.collapsedIds}',
+            'بعد إزالة الـ Blank: ${ctc.afterBlankRemovalIds}',
+            'الكلمات المفككة: ${ctc.decodedGlosses}',
+            'متوسط الثقة: ${(ctc.averageConfidence * 100).toStringAsFixed(1)}%',
+          ],
+        ),
+
+        // 7. FINAL GLOSS & DECISION
+        _buildItemCard(
+          title: 'النتيجة النهائية (FINAL GLOSS)',
+          status: finalOut.status,
+          details: [
+            'المخرج الأولي للنموذج: "${finalOut.rawModelGloss ?? "—"}"',
+            'القرار: ${finalOut.decision}',
+            'الكلمة المعتمدة: "${finalOut.finalGloss ?? "NONE"}"',
+            if (finalOut.rejectionReason != null) 'سبب الرفض: ${finalOut.rejectionReason}',
+          ],
+        ),
+
+        const SizedBox(height: 12),
+        _buildEventsHistorySection(),
+      ],
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // REUSABLE ITEM CARD
+  // ═══════════════════════════════════════════════════════════════════════════
+  Widget _buildItemCard({
     required String title,
     required DiagnosticStageStatus status,
     String? errorCode,
@@ -454,19 +651,8 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView> {
         side: BorderSide(color: color.withValues(alpha: 0.6), width: 1.5),
       ),
       child: ExpansionTile(
-        initiallyExpanded: status == DiagnosticStageStatus.fail || status == DiagnosticStageStatus.waiting,
-        leading: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: color.withValues(alpha: 0.5)),
-          ),
-          child: Text(
-            '$stageNumber',
-            style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13),
-          ),
-        ),
+        initiallyExpanded: status == DiagnosticStageStatus.fail ||
+            status == DiagnosticStageStatus.waiting,
         title: Text(
           title,
           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
@@ -504,7 +690,12 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView> {
                       children: [
                         Text(
                           'رمز الخطأ: $errorCode',
-                          style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'monospace'),
+                          style: const TextStyle(
+                            color: Colors.redAccent,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            fontFamily: 'monospace',
+                          ),
                         ),
                         if (failureReason != null)
                           Text(
@@ -521,7 +712,11 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView> {
                     padding: const EdgeInsets.symmetric(vertical: 2),
                     child: Text(
                       d,
-                      style: const TextStyle(fontSize: 12, fontFamily: 'monospace', height: 1.4),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                        height: 1.4,
+                      ),
                     ),
                   ),
                 ),
@@ -533,6 +728,9 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView> {
     );
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EVENT HISTORY
+  // ═══════════════════════════════════════════════════════════════════════════
   Widget _buildEventsHistorySection() {
     final events = _diagService.eventHistory.toList().reversed.toList();
 
@@ -544,7 +742,10 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView> {
           children: [
             const Icon(Icons.history, size: 18, color: Colors.grey),
             const SizedBox(width: 8),
-            Text('سجل الأحداث الـ 50 الأخيرة (${events.length} حدث)', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+            Text(
+              'سجل الأحداث الأخيرة (${events.length} حدث)',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+            ),
           ],
         ),
         children: [
@@ -553,7 +754,12 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView> {
             padding: const EdgeInsets.all(8),
             color: Colors.black12,
             child: events.isEmpty
-                ? const Center(child: Text('لا توجد أحداث مسجلة بعد', style: TextStyle(color: Colors.grey)))
+                ? const Center(
+                    child: Text(
+                      'لا توجد أحداث مسجلة بعد',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  )
                 : ListView.builder(
                     itemCount: events.length,
                     itemBuilder: (ctx, idx) {
@@ -570,7 +776,11 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView> {
                           children: [
                             Text(
                               e.timeFormatted,
-                              style: const TextStyle(color: Colors.grey, fontSize: 11, fontFamily: 'monospace'),
+                              style: const TextStyle(
+                                color: Colors.grey,
+                                fontSize: 11,
+                                fontFamily: 'monospace',
+                              ),
                             ),
                             const SizedBox(width: 6),
                             Container(
@@ -581,7 +791,11 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView> {
                               ),
                               child: Text(
                                 e.stage,
-                                style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+                                style: TextStyle(
+                                  color: color,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 6),

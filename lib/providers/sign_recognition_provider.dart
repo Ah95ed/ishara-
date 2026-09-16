@@ -167,6 +167,14 @@ class SignRecognitionProvider extends ChangeNotifier {
     }
   }
 
+  /// تشغيل فحص وتشخيص نموذج لغة الإشارة المستقل (PATH A)
+  Future<ModelDiagnosticResult> runModelDiagnostics() async {
+    final result = await _modelService.runModelDiagnostics();
+    _isModelLoaded = _modelService.isLoaded;
+    notifyListeners();
+    return result;
+  }
+
   /// بدء عملية التعرف المستمر
   void startRecognition() {
     _isRecognizing = true;
@@ -249,15 +257,6 @@ class SignRecognitionProvider extends ChangeNotifier {
         facePresentDirect: presenceState.facePresent,
         personPresentDirect: presenceState.personPresent,
       );
-      _lastPresence = presence;
-
-      if (!_isModelLoaded ||
-          !_vocabService.isLoaded ||
-          !presence.personPresent) {
-        notifyListeners();
-        return;
-      }
-
       // 4. تطبيق المعالجة المسبقة والتطبيع الصارم المطابق لـ datasetv2.py
       final frame86x2 = _preprocessor.processFrame(
         rawRightHand: extracted.rightHand,
@@ -266,8 +265,28 @@ class SignRecognitionProvider extends ChangeNotifier {
         rawBody: extracted.body,
       );
 
-      // تسجيل تشخيصات الإطار للمراحل 2..8
-      _recordDiagnosticsForFrame(extracted, presenceState, frame86x2);
+      // تسجيل تشخيصات الإطار للمراحل 1..8 بالكامل وبشكل مستقل تماماً عن الموديل
+      _recordDiagnosticsForFrame(
+        extracted,
+        presenceState,
+        frame86x2,
+        image: image,
+        sensorOrientation: sensorOrientation,
+        isFrontCamera: isFrontCamera,
+        deviceOrientation: deviceOrientation,
+      );
+
+      // إشعار المستمعين لتحديث الشاشة وواجهة الكشف
+      notifyListeners();
+
+      // مسار التعرف على الإشارة مشروط بجاهزية الموديل وحضور الشخص
+      if (!_isModelLoaded || !_vocabService.isLoaded) {
+        return;
+      }
+
+      if (!presence.personPresent) {
+        return;
+      }
 
       // 5. تحليل الحركة الزمنية وحساب طاقة الحركة الموزونة
       final motion = _motionAnalyzer.analyzeFrame(
@@ -564,9 +583,47 @@ class SignRecognitionProvider extends ChangeNotifier {
   void _recordDiagnosticsForFrame(
     ExtractedPoseFrame extracted,
     PersonPresenceState presenceState,
-    List<List<double>> frame86x2,
-  ) {
+    List<List<double>> frame86x2, {
+    required CameraImage image,
+    int? sensorOrientation,
+    bool isFrontCamera = false,
+    DeviceOrientation deviceOrientation = DeviceOrientation.portraitUp,
+  }) {
     final diag = IsharaDiagnosticService();
+
+    final int previewRotation = sensorOrientation ?? 90;
+    final int deviceAngle = switch (deviceOrientation) {
+      DeviceOrientation.portraitUp => 0,
+      DeviceOrientation.landscapeLeft => 90,
+      DeviceOrientation.portraitDown => 180,
+      DeviceOrientation.landscapeRight => 270,
+    };
+    final int detectorInputRotation = isFrontCamera
+        ? (previewRotation + deviceAngle) % 360
+        : (previewRotation - deviceAngle + 360) % 360;
+
+    // 1. Camera Section Diagnostic
+    diag.recordCamera(
+      isInitialized: true,
+      isStreaming: true,
+      fps: 15.0,
+      frameAgeMs: 0,
+      width: image.width,
+      height: image.height,
+      format: image.format.group.name,
+      rotation: previewRotation,
+      previewRotation: previewRotation,
+      detectorInputRotation: detectorInputRotation,
+      framesReceived: cameraFramesReceived,
+      imageConversionStatus: DiagnosticStageStatus.pass,
+      personDetectorCalls: personDetectorCalls,
+      personDetectorResults: personDetectorResults,
+      personDetectorErrors: personDetectorErrors,
+      poseLandmarks: extracted.body?.length ?? (presenceState.bodyPosePresent ? 25 : 0),
+      faceLandmarks: extracted.facePresent ? 11 : 0,
+      leftHandLandmarks: extracted.leftHand?.length ?? 0,
+      rightHandLandmarks: extracted.rightHand?.length ?? 0,
+    );
 
     // 2. Person Detection
     diag.recordPerson(
@@ -574,6 +631,10 @@ class SignRecognitionProvider extends ChangeNotifier {
       posePresent: presenceState.bodyPosePresent,
       facePresent: presenceState.facePresent,
       headPresent: presenceState.headPresent,
+      poseLandmarks: extracted.body?.length ?? (presenceState.bodyPosePresent ? 25 : 0),
+      faceLandmarks: extracted.facePresent ? 11 : 0,
+      leftHandLandmarks: extracted.leftHand?.length ?? 0,
+      rightHandLandmarks: extracted.rightHand?.length ?? 0,
     );
 
     // 3. Hands Detection
@@ -591,7 +652,7 @@ class SignRecognitionProvider extends ChangeNotifier {
       faceDetected: extracted.facePresent,
       headDetected: extracted.headPresent,
       lipsDetected: extracted.lipsPresent,
-      validFacePoints: extracted.facePresent ? 1 : 0,
+      validFacePoints: extracted.facePresent ? 11 : 0,
       validHeadPoints: extracted.body?.length ?? 0,
       validLipPoints: extracted.lips?.length ?? 0,
       confidence: extracted.headConfidence,

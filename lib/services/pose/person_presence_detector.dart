@@ -83,12 +83,10 @@ class PersonPresenceDetector {
     required bool leftHandPresent,
     required bool rightHandPresent,
   }) {
-    // 1. Person Detection اللحظي:
-    // personPresent must come from body pose only.
-    final bool instantPersonDetected = bodyPosePresent;
+    // 1. Person Detection اللحظي (Pose OR Head OR Face):
+    final bool instantPersonDetected = bodyPosePresent || headPresent || facePresent;
 
-    // 2. Hand Detection اللحظي:
-    // handPresent = leftHandPresent || rightHandPresent
+    // 2. Hand Detection اللحظي (حالة مستقلة تماماً):
     final bool instantHandDetected = leftHandPresent || rightHandPresent;
 
     // 3. Temporal Persistence للشخص:

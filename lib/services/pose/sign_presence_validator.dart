@@ -125,10 +125,9 @@ class SignPresenceValidator {
 
     final bool facePresent = facePresentDirect || lipsPresent || headPresent;
 
-    // 1. تعريف وجود الشخص:
-    // personPresent MUST be based on body pose only.
-    // Face/head landmarks are informative but not a person detector.
-    final bool personPresent = personPresentDirect || resolvedBodyPose;
+    // 1. تعريف وجود الشخص (Pose OR Head OR Face):
+    final bool personPresent =
+        personPresentDirect || resolvedBodyPose || headPresent || facePresent;
 
     final result = FramePresenceResult(
       personPresent: personPresent,

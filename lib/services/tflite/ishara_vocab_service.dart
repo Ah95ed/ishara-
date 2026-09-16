@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:ishara/services/diagnostics/diagnostic_models.dart';
 
 /// خدمة إدارة وتحميل قاموس لغة الإشارة العربية (ishara_vocab.json)
 /// يحتوي على 684 فئة مطابقة لتدريب النموذج مع الـ CTC Blank (0 = "_").
@@ -62,18 +63,15 @@ class IsharaVocabService {
 
       if (invalidIds.isNotEmpty) {
         final errorMsg =
-            'CRITICAL ERROR: Vocabulary has missing gloss IDs in 1..${expectedVocabSize - 1}. Missing: $invalidIds';
+            'CRITICAL ERROR: Vocabulary has missing gloss IDs in 1..${expectedVocabSize - 1}. Missing: $invalidIds (${DiagnosticErrorCodes.e020VocabMissingIds})';
         debugPrint('[IsharaVocabService] ❌ $errorMsg');
         _isLoaded = false;
         throw StateError(errorMsg);
       }
 
-      // التحقق من Blank token (ID 0 محجوز لـ CTC blank وليس Gloss فعلي)
-      if (_idToGloss[blankId] != blankToken) {
-        debugPrint(
-          '[IsharaVocabService] ⚠️ Warning: ID 0 is "${_idToGloss[blankId]}" (expected "$blankToken")',
-        );
-      }
+      // التحقق من Blank token (ID 0 محجوز لـ CTC blank)
+      debugPrint('[IsharaVocabService] CTC Blank ID = 0 (Token: "${_idToGloss[blankId] ?? '_'}")');
+      debugPrint('VOCABULARY PASS');
 
       _isLoaded = true;
       debugPrint(

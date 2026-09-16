@@ -399,41 +399,11 @@ class GlossModelService extends ChangeNotifier {
     return text;
   }
 
-  /// محاكاة محلية ذكية خارج بيئة Android
+  /// إرجاع الكلمة النظيفة مباشرة دون اختلاق جمل افتراضية عند تعذر نموذج الترجمة
   String _simulateTranslation(String gloss) {
-    if (gloss.contains('أنا') &&
-        gloss.contains('ذهاب') &&
-        gloss.contains('سوق')) {
-      return 'أنا ذاهب إلى السوق.';
-    }
-    if (gloss.contains('أنا') && gloss.contains('ماء')) {
-      return 'أنا أريد شرب الماء.';
-    }
-    if (gloss.contains('أنت') && gloss.contains('مساعدة')) {
-      return 'هل يمكنك مساعدتي؟';
-    }
-    if (gloss.contains('أنا') && gloss.contains('أحبك')) {
-      return 'أنا أحبك كثيراً.';
-    }
-    if (gloss.contains('أحبك')) {
-      return 'أحبك.';
-    }
-    if (gloss.contains('طعام')) {
-      return 'أريد تناول الطعام.';
-    }
-    if (gloss.contains('السلام')) {
-      return 'السلام عليكم ورحمة الله وبركاته.';
-    }
-    if (gloss.contains('شكراً')) {
-      return 'شكراً جزيلاً لك.';
-    }
-    if (gloss.contains('ماء')) {
-      return 'أريد شرب الماء.';
-    }
-    if (gloss.contains('مساعدة')) {
-      return 'أحتاج إلى المساعدة من فضلك.';
-    }
-    return '$gloss.';
+    final trimmed = gloss.trim();
+    if (trimmed.isEmpty) return 'NO RESULT';
+    return trimmed;
   }
 
   // ────────────────────────────────── 4. إيقاف وتفريغ ──────────────────────────────────

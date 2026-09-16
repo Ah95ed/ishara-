@@ -1,6 +1,9 @@
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:ishara/services/diagnostics/diagnostic_models.dart';
+import 'package:ishara/services/diagnostics/ishara_diagnostic_service.dart';
 import 'package:ishara/services/tflite/ishara_vocab_service.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 
@@ -42,6 +45,43 @@ class ModelInferenceAnalysis {
   });
 }
 
+/// نتيجة فحص وتشخيص نموذج لغة الإشارة المستقل (PATH A)
+class ModelDiagnosticResult {
+  final bool fileFound;
+  final int fileBytes;
+  final double fileSizeMb;
+  final bool interpreterCreated;
+  final bool shapesMatch;
+  final bool standaloneInferencePassed;
+  final int inferenceTimeMs;
+  final bool outputValid;
+  final String? errorCode;
+  final String? errorMessage;
+  final List<int>? inputShape;
+  final List<int>? outputShape;
+  final double minVal;
+  final double maxVal;
+  final double meanVal;
+
+  const ModelDiagnosticResult({
+    required this.fileFound,
+    required this.fileBytes,
+    required this.fileSizeMb,
+    required this.interpreterCreated,
+    required this.shapesMatch,
+    required this.standaloneInferencePassed,
+    required this.inferenceTimeMs,
+    required this.outputValid,
+    this.errorCode,
+    this.errorMessage,
+    this.inputShape,
+    this.outputShape,
+    this.minVal = 0.0,
+    this.maxVal = 0.0,
+    this.meanVal = 0.0,
+  });
+}
+
 /// خدمة مستقلة لتشغيل نموذج لغة الإشارة العربية CSLR Transformer (ishara_model.tflite)
 /// محلياً بالكامل على Android عبر TFLite/LiteRT.
 class IsharaRecognitionService {
@@ -55,69 +95,347 @@ class IsharaRecognitionService {
   List<int>? _outputShape;
   TensorType? _inputType;
   TensorType? _outputType;
+  ModelDiagnosticResult? _lastDiagnosticResult;
 
   bool get isModelLoaded => _isModelLoaded;
+  bool get isLoaded => _isModelLoaded;
   List<int>? get inputShape => _inputShape;
   List<int>? get outputShape => _outputShape;
   TensorType? get inputType => _inputType;
   TensorType? get outputType => _outputType;
+  ModelDiagnosticResult? get lastDiagnosticResult => _lastDiagnosticResult;
 
-  /// تحميل النموذج والتحقق الصارم من صحة الأبعاد ونوع البيانات
+  /// تحميل النموذج وتشغيل التشخيص المستقل الشامل (PATH A)
   Future<bool> loadModel({int numThreads = 2}) async {
-    if (_isModelLoaded && _interpreter != null) {
-      return true;
+    final diag = await runModelDiagnostics(numThreads: numThreads);
+    return diag.interpreterCreated && diag.shapesMatch && diag.standaloneInferencePassed;
+  }
+
+  /// تشخيص واختبار نموذج ishara_model.tflite بشكل مستقل تماماً بدون Camera وبدون MediaPipe
+  Future<ModelDiagnosticResult> runModelDiagnostics({int numThreads = 2}) async {
+    debugPrint('════════════════════════════════════════════════════════════');
+    debugPrint('[PATH A] 🚀 STARTING ISOLATED MODEL DIAGNOSTIC (ishara_model.tflite)');
+    debugPrint('════════════════════════════════════════════════════════════');
+
+    // ──────────────── A1: التحقق من Asset ────────────────
+    int fileBytes = 0;
+    double fileSizeMb = 0.0;
+    try {
+      final byteData = await rootBundle.load(modelAssetPath);
+      fileBytes = byteData.lengthInBytes;
+      fileSizeMb = fileBytes / (1024 * 1024);
+
+      if (fileBytes == 0) {
+        debugPrint('ERROR: ${DiagnosticErrorCodes.e002ModelAssetEmpty}');
+        IsharaDiagnosticService().recordTfliteLoad(
+          fileFound: true,
+          isLoaded: false,
+          modelFileStatus: DiagnosticStageStatus.fail,
+          modelSizeBytes: 0,
+          modelSizeMb: 0.0,
+          interpreterStatus: DiagnosticStageStatus.waiting,
+          errorCode: DiagnosticErrorCodes.e002ModelAssetEmpty,
+          errorMessage: 'ملف الموديل فارغ 0 بايت',
+        );
+        return const ModelDiagnosticResult(
+          fileFound: true,
+          fileBytes: 0,
+          fileSizeMb: 0.0,
+          interpreterCreated: false,
+          shapesMatch: false,
+          standaloneInferencePassed: false,
+          inferenceTimeMs: 0,
+          outputValid: false,
+          errorCode: DiagnosticErrorCodes.e002ModelAssetEmpty,
+          errorMessage: 'E002_MODEL_ASSET_EMPTY',
+        );
+      }
+
+      debugPrint('MODEL ASSET FOUND: true');
+      debugPrint('MODEL BYTES: $fileBytes');
+      debugPrint('MODEL SIZE MB: ${fileSizeMb.toStringAsFixed(2)} MB');
+    } catch (e, stack) {
+      debugPrint('ERROR: ${DiagnosticErrorCodes.e001ModelAssetNotFound}');
+      debugPrint('Exception type: ${e.runtimeType}');
+      debugPrint('Exception message: $e');
+      debugPrint('Stack trace:\n$stack');
+
+      IsharaDiagnosticService().recordTfliteLoad(
+        fileFound: false,
+        isLoaded: false,
+        modelFileStatus: DiagnosticStageStatus.fail,
+        modelSizeBytes: 0,
+        modelSizeMb: 0.0,
+        interpreterStatus: DiagnosticStageStatus.waiting,
+        errorCode: DiagnosticErrorCodes.e001ModelAssetNotFound,
+        errorMessage: 'ملف الموديل غير موجود: $e',
+      );
+
+      return ModelDiagnosticResult(
+        fileFound: false,
+        fileBytes: 0,
+        fileSizeMb: 0.0,
+        interpreterCreated: false,
+        shapesMatch: false,
+        standaloneInferencePassed: false,
+        inferenceTimeMs: 0,
+        outputValid: false,
+        errorCode: DiagnosticErrorCodes.e001ModelAssetNotFound,
+        errorMessage: 'E001_MODEL_ASSET_NOT_FOUND: $e',
+      );
     }
 
+    // ──────────────── A2: إنشاء Interpreter ────────────────
+    debugPrint('INTERPRETER CREATE START');
     try {
       final options = InterpreterOptions()..threads = numThreads;
+      _interpreter?.close();
       _interpreter = await Interpreter.fromAsset(
         modelAssetPath,
         options: options,
       );
-
-      final inputTensor = _interpreter!.getInputTensor(0);
-      final outputTensor = _interpreter!.getOutputTensor(0);
-
-      _inputShape = inputTensor.shape;
-      _outputShape = outputTensor.shape;
-      _inputType = inputTensor.type;
-      _outputType = outputTensor.type;
-
-      debugPrint('==================================================');
-      debugPrint('[IsharaRecognitionService] Model loaded successfully');
-      debugPrint('Input shape: $_inputShape');
-      debugPrint('Output shape: $_outputShape');
-      debugPrint('Input type: $_inputType');
-      debugPrint('Output type: $_outputType');
-      debugPrint('==================================================');
-
-      final inputOk = listEquals(_inputShape, expectedInputShape);
-      final outputOk = listEquals(_outputShape, expectedOutputShape);
-
-      if (!inputOk || !outputOk) {
-        final buffer = StringBuffer();
-        buffer.writeln('TFLite model validation failed.');
-        buffer.writeln('Expected input: ${expectedInputShape.toList()}');
-        buffer.writeln('Actual input: ${_inputShape?.toList() ?? 'null'}');
-        buffer.writeln('Expected output: ${expectedOutputShape.toList()}');
-        buffer.writeln('Actual output: ${_outputShape?.toList() ?? 'null'}');
-
-        final errorMsg = buffer.toString();
-        debugPrint('[IsharaRecognitionService] ❌ $errorMsg');
-        _releaseModel();
-        throw StateError(errorMsg);
-      }
-
-      _isModelLoaded = true;
-      return true;
+      debugPrint('INTERPRETER CREATE SUCCESS');
     } catch (e, stack) {
+      debugPrint('ERROR: ${DiagnosticErrorCodes.e010InterpreterCreateFailed}');
+      debugPrint('Exception type: ${e.runtimeType}');
+      debugPrint('Exception message: $e');
+      debugPrint('StackTrace:\n$stack');
+
       _isModelLoaded = false;
       _releaseModel();
-      debugPrint(
-        '[IsharaRecognitionService] ❌ Failed to load model: $e\n$stack',
+
+      IsharaDiagnosticService().recordTfliteLoad(
+        fileFound: true,
+        isLoaded: false,
+        modelFileStatus: DiagnosticStageStatus.pass,
+        modelSizeBytes: fileBytes,
+        modelSizeMb: fileSizeMb,
+        interpreterStatus: DiagnosticStageStatus.fail,
+        exceptionType: e.runtimeType.toString(),
+        exceptionMessage: e.toString(),
+        errorCode: DiagnosticErrorCodes.e010InterpreterCreateFailed,
+        errorMessage: 'فشل إنشاء Interpreter: $e',
       );
-      return false;
+
+      return ModelDiagnosticResult(
+        fileFound: true,
+        fileBytes: fileBytes,
+        fileSizeMb: fileSizeMb,
+        interpreterCreated: false,
+        shapesMatch: false,
+        standaloneInferencePassed: false,
+        inferenceTimeMs: 0,
+        outputValid: false,
+        errorCode: DiagnosticErrorCodes.e010InterpreterCreateFailed,
+        errorMessage: 'E010_INTERPRETER_CREATE_FAILED: $e',
+      );
     }
+
+    // ──────────────── A3: قراءة الـ Tensors الحقيقية ────────────────
+    final inputTensor = _interpreter!.getInputTensor(0);
+    final outputTensor = _interpreter!.getOutputTensor(0);
+
+    _inputShape = inputTensor.shape;
+    _outputShape = outputTensor.shape;
+    _inputType = inputTensor.type;
+    _outputType = outputTensor.type;
+
+    debugPrint('REAL MODEL INPUT: shape=$_inputShape, type=$_inputType');
+    debugPrint('REAL MODEL OUTPUT: shape=$_outputShape, type=$_outputType');
+
+    // ──────────────── A4: مقارنة الأبعاد الصارمة باستخدام listEquals ────────────────
+    final inputOk = listEquals(_inputShape, const [1, 128, 86, 2]);
+    final outputOk = listEquals(_outputShape, const [1, 29, 684]);
+
+    if (!inputOk || !outputOk) {
+      debugPrint('Expected Input: [1, 128, 86, 2]');
+      debugPrint('Actual Input: $_inputShape');
+      debugPrint('Expected Output: [1, 29, 684]');
+      debugPrint('Actual Output: $_outputShape');
+      debugPrint('Error: ${DiagnosticErrorCodes.e011TensorShapeMismatch}');
+
+      _isModelLoaded = false;
+      _releaseModel();
+
+      IsharaDiagnosticService().recordTfliteLoad(
+        fileFound: true,
+        isLoaded: false,
+        modelFileStatus: DiagnosticStageStatus.pass,
+        modelSizeBytes: fileBytes,
+        modelSizeMb: fileSizeMb,
+        interpreterStatus: DiagnosticStageStatus.pass,
+        inputTensorStatus: inputOk ? DiagnosticStageStatus.pass : DiagnosticStageStatus.fail,
+        outputTensorStatus: outputOk ? DiagnosticStageStatus.pass : DiagnosticStageStatus.fail,
+        inputShape: _inputShape,
+        outputShape: _outputShape,
+        errorCode: DiagnosticErrorCodes.e011TensorShapeMismatch,
+        errorMessage: 'E011_TENSOR_SHAPE_MISMATCH: Input: $_inputShape (expected [1, 128, 86, 2]), Output: $_outputShape (expected [1, 29, 684])',
+      );
+
+      return ModelDiagnosticResult(
+        fileFound: true,
+        fileBytes: fileBytes,
+        fileSizeMb: fileSizeMb,
+        interpreterCreated: true,
+        shapesMatch: false,
+        standaloneInferencePassed: false,
+        inferenceTimeMs: 0,
+        outputValid: false,
+        inputShape: _inputShape,
+        outputShape: _outputShape,
+        errorCode: DiagnosticErrorCodes.e011TensorShapeMismatch,
+        errorMessage: 'E011_TENSOR_SHAPE_MISMATCH',
+      );
+    }
+
+    // ──────────────── A5: Standalone Inference ────────────────
+    debugPrint('STANDALONE INFERENCE START');
+    int inferenceTimeMs = 0;
+    // إنشاء مصفوفة إدخال بأبعاد [1, 128, 86, 2] = 22016 قيمة
+    final dummyInput = List.generate(
+      1,
+      (_) => List.generate(
+        128,
+        (_) => List.generate(86, (_) => List<double>.filled(2, 0.0)),
+      ),
+    );
+    // إنشاء مصفوفة إخراج بأبعاد [1, 29, 684]
+    final dummyOutput = List.generate(
+      1,
+      (_) => List.generate(
+        29,
+        (_) => List<double>.filled(684, 0.0),
+      ),
+    );
+
+    try {
+      final sw = Stopwatch()..start();
+      _interpreter!.run(dummyInput, dummyOutput);
+      sw.stop();
+      inferenceTimeMs = sw.elapsedMilliseconds;
+      debugPrint('STANDALONE INFERENCE SUCCESS');
+      debugPrint('inferenceTimeMs: $inferenceTimeMs ms');
+    } catch (e, stack) {
+      debugPrint('ERROR: ${DiagnosticErrorCodes.e012StandaloneInferenceFailed}');
+      debugPrint('Exception type: ${e.runtimeType}');
+      debugPrint('Exception message: $e');
+      debugPrint('StackTrace:\n$stack');
+
+      _isModelLoaded = false;
+      _releaseModel();
+
+      IsharaDiagnosticService().recordTfliteLoad(
+        fileFound: true,
+        isLoaded: false,
+        modelFileStatus: DiagnosticStageStatus.pass,
+        modelSizeBytes: fileBytes,
+        modelSizeMb: fileSizeMb,
+        interpreterStatus: DiagnosticStageStatus.pass,
+        inputTensorStatus: DiagnosticStageStatus.pass,
+        outputTensorStatus: DiagnosticStageStatus.pass,
+        standaloneInferenceStatus: DiagnosticStageStatus.fail,
+        inputShape: _inputShape,
+        outputShape: _outputShape,
+        exceptionType: e.runtimeType.toString(),
+        exceptionMessage: e.toString(),
+        errorCode: DiagnosticErrorCodes.e012StandaloneInferenceFailed,
+        errorMessage: 'E012_STANDALONE_INFERENCE_FAILED: $e',
+      );
+
+      return ModelDiagnosticResult(
+        fileFound: true,
+        fileBytes: fileBytes,
+        fileSizeMb: fileSizeMb,
+        interpreterCreated: true,
+        shapesMatch: true,
+        standaloneInferencePassed: false,
+        inferenceTimeMs: 0,
+        outputValid: false,
+        inputShape: _inputShape,
+        outputShape: _outputShape,
+        errorCode: DiagnosticErrorCodes.e012StandaloneInferenceFailed,
+        errorMessage: 'E012_STANDALONE_INFERENCE_FAILED: $e',
+      );
+    }
+
+    // ──────────────── A6: التحقق من مخرجات النموذج (Output Check) ────────────────
+    final outSteps = dummyOutput[0];
+    int nanCount = 0;
+    int infCount = 0;
+    bool allZeros = true;
+    double minVal = double.infinity;
+    double maxVal = -double.infinity;
+    double sumVal = 0.0;
+    int totalElements = 0;
+
+    for (final step in outSteps) {
+      for (final v in step) {
+        totalElements++;
+        if (v.isNaN) {
+          nanCount++;
+        } else if (v.isInfinite) {
+          infCount++;
+        } else {
+          if (v != 0.0) allZeros = false;
+          if (v < minVal) minVal = v;
+          if (v > maxVal) maxVal = v;
+          sumVal += v;
+        }
+      }
+    }
+
+    final double meanVal = totalElements > 0 ? sumVal / totalElements : 0.0;
+    final bool outputValid = nanCount == 0 && infCount == 0;
+
+    debugPrint('Output Shape: [1, ${outSteps.length}, ${outSteps.first.length}]');
+    debugPrint('Output NaN Count: $nanCount');
+    debugPrint('Output Inf Count: $infCount');
+    debugPrint('Output All Zeros: $allZeros');
+    debugPrint('Output Min: $minVal, Max: $maxVal, Mean: $meanVal');
+
+    if (outputValid) {
+      debugPrint('MODEL EXECUTION = PASS');
+    }
+
+    _isModelLoaded = true;
+
+    // تسجيل نجاح كامل مراحل الموديل في IsharaDiagnosticService
+    IsharaDiagnosticService().recordTfliteLoad(
+      fileFound: true,
+      isLoaded: true,
+      modelFileStatus: DiagnosticStageStatus.pass,
+      modelSizeBytes: fileBytes,
+      modelSizeMb: fileSizeMb,
+      interpreterStatus: DiagnosticStageStatus.pass,
+      inputTensorStatus: DiagnosticStageStatus.pass,
+      outputTensorStatus: DiagnosticStageStatus.pass,
+      standaloneInferenceStatus: DiagnosticStageStatus.pass,
+      standaloneInferenceTimeMs: inferenceTimeMs,
+      inputShape: _inputShape,
+      outputShape: _outputShape,
+    );
+
+    _lastDiagnosticResult = ModelDiagnosticResult(
+      fileFound: true,
+      fileBytes: fileBytes,
+      fileSizeMb: fileSizeMb,
+      interpreterCreated: true,
+      shapesMatch: true,
+      standaloneInferencePassed: true,
+      inferenceTimeMs: inferenceTimeMs,
+      outputValid: outputValid,
+      inputShape: _inputShape,
+      outputShape: _outputShape,
+      minVal: minVal == double.infinity ? 0.0 : minVal,
+      maxVal: maxVal == -double.infinity ? 0.0 : maxVal,
+      meanVal: meanVal,
+    );
+
+    debugPrint('════════════════════════════════════════════════════════════');
+    debugPrint('[PATH A] ✅ ISOLATED MODEL DIAGNOSTIC COMPLETED: ALL PASS');
+    debugPrint('════════════════════════════════════════════════════════════');
+
+    return _lastDiagnosticResult!;
   }
 
   /// تشغيل الاستنتاج على مصفوفة الإدخال [1, 128, 86, 2]

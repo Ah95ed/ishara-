@@ -17,11 +17,32 @@ enum DiagnosticStageStatus {
 
 /// رموز الأخطاء الثابتة الصارمة للمطور
 class DiagnosticErrorCodes {
+  // Model Diagnostic Error Codes (Part A)
+  static const String e001ModelAssetNotFound = 'E001_MODEL_ASSET_NOT_FOUND';
+  static const String e002ModelAssetEmpty = 'E002_MODEL_ASSET_EMPTY';
+  static const String e010InterpreterCreateFailed = 'E010_INTERPRETER_CREATE_FAILED';
+  static const String e011TensorShapeMismatch = 'E011_TENSOR_SHAPE_MISMATCH';
+  static const String e012StandaloneInferenceFailed = 'E012_STANDALONE_INFERENCE_FAILED';
+  static const String e020VocabMissingIds = 'E020_VOCAB_MISSING_IDS';
+
+  // Camera & Person Detection Error Codes (Part B)
+  static const String e101PersonDetectorNotCalled = 'E101_PERSON_DETECTOR_NOT_CALLED';
+  static const String e102PersonDetectorException = 'E102_PERSON_DETECTOR_EXCEPTION';
+  static const String e110ImageConversionFailed = 'E110_IMAGE_CONVERSION_FAILED';
+
+  // Sign Pipeline Error Codes
+  static const String e201KeypointCount = 'E201_KEYPOINT_COUNT';
+  static const String e301PreprocessNan = 'E301_PREPROCESS_NAN';
+  static const String e401BufferNotFilling = 'E401_BUFFER_NOT_FILLING';
+  static const String e501RealModelInputInvalid = 'E501_REAL_MODEL_INPUT_INVALID';
+
+  // Legacy compatibility error codes
   static const String e001CameraNoFrames = 'E001_CAMERA_NO_FRAMES';
   static const String e002CameraRotation = 'E002_CAMERA_ROTATION';
   static const String e101PersonNotDetected = 'E101_PERSON_NOT_DETECTED';
   static const String e201NoHand = 'E201_NO_HAND';
-  static const String e301KeypointCount = 'E301_KEYPOINT_COUNT';
+  static const String e301KeypointCount = 'E201_KEYPOINT_COUNT';
+  static const String e301KeypointCountLegacy = 'E301_KEYPOINT_COUNT';
   static const String e302InvalidKeypointValues = 'E302_INVALID_KEYPOINT_VALUES';
   static const String e303MappingFailure = 'E303_MAPPING_FAILURE';
   static const String e401PreprocessingNan = 'E401_PREPROCESSING_NAN';
@@ -36,6 +57,32 @@ class DiagnosticErrorCodes {
 
   static String getDescription(String code) {
     switch (code) {
+      case e001ModelAssetNotFound:
+        return 'ملف الموديل غير موجود في الأصول (E001_MODEL_ASSET_NOT_FOUND)';
+      case e002ModelAssetEmpty:
+        return 'ملف الموديل فارغ 0 بايت (E002_MODEL_ASSET_EMPTY)';
+      case e010InterpreterCreateFailed:
+        return 'فشل إنشاء Interpreter للنموذج (E010_INTERPRETER_CREATE_FAILED)';
+      case e011TensorShapeMismatch:
+        return 'أبعاد Tensors الحقيقية لا تطابق المتوقع (E011_TENSOR_SHAPE_MISMATCH)';
+      case e012StandaloneInferenceFailed:
+        return 'فشل تشغيل الاستنتاج المستقل للموديل (E012_STANDALONE_INFERENCE_FAILED)';
+      case e020VocabMissingIds:
+        return 'قاموس المفردات تنقصه بعض المعرفات (E020_VOCAB_MISSING_IDS)';
+      case e101PersonDetectorNotCalled:
+        return 'كاشف الشخص لم يتم استدعاؤه رغم وصول إطارات الكاميرا (E101_PERSON_DETECTOR_NOT_CALLED)';
+      case e102PersonDetectorException:
+        return 'حدث خطأ استثنائي داخل كاشف الشخص (E102_PERSON_DETECTOR_EXCEPTION)';
+      case e110ImageConversionFailed:
+        return 'فشل تحويل صورة الكاميرا إلى صيغة الكاشف (E110_IMAGE_CONVERSION_FAILED)';
+      case e201KeypointCount:
+        return 'عدد النقاط لا يساوي 86 نقطة بالضبط (E201_KEYPOINT_COUNT)';
+      case e301PreprocessNan:
+        return 'المعالجة المسبقة أنتجت قيماً غير معرفة NaN (E301_PREPROCESS_NAN)';
+      case e401BufferNotFilling:
+        return 'المخزن الزمني لا يمتلئ بالرغم من توفر المعالم (E401_BUFFER_NOT_FILLING)';
+      case e501RealModelInputInvalid:
+        return 'مصفوفة الدخل الفعلي للنموذج غير صالحة (E501_REAL_MODEL_INPUT_INVALID)';
       case e001CameraNoFrames:
         return 'الكاميرا لا ترسل إطارات أو البث متوقف';
       case e002CameraRotation:
@@ -44,30 +91,6 @@ class DiagnosticErrorCodes {
         return 'لم يتم رصد وجود شخص أو وضعية جسم أمام الكاميرا';
       case e201NoHand:
         return 'لم يتم رصد أي يد (يمنى أو يسرى) في الإطار';
-      case e301KeypointCount:
-        return 'عدد النقاط لا يساوي 86 نقطة بالضبط';
-      case e302InvalidKeypointValues:
-        return 'إحداثيات النقاط تحتوي على قيم NaN أو مالانهاية';
-      case e303MappingFailure:
-        return 'فشل خريطة النقاط لمجموعات الأيدي أو الشفاه أو الجسم';
-      case e401PreprocessingNan:
-        return 'المعالجة المسبقة والتطبيع أنتجت قيماً غير معرفة (NaN)';
-      case e402PreprocessingRange:
-        return 'القيم بعد التطبيع خارج النطاق الطبيعي المتوقع';
-      case e501BufferNotReady:
-        return 'المخزن الزمني لم يكتمل بعد (أقل من 128 إطاراً)';
-      case e601ModelNotLoaded:
-        return 'تعذر تحميل ملف النموذج ishara_model.tflite';
-      case e602ModelInputShape:
-        return 'أبعاد مصفوفة دخل النموذج غير مطابقة [1, 128, 86, 2]';
-      case e603InferenceFailed:
-        return 'فشل استدعاء وتشغيل استنتاج TFLite interpreter';
-      case e604InvalidModelOutput:
-        return 'مخرجات النموذج لا تطابق [1, 29, 684] أو تحتوي NaN';
-      case e701CtcFailed:
-        return 'فشل فك ترميز CTC أو إنتاج تسلسل فارغ';
-      case e801VocabMismatch:
-        return 'معرف الفئة خارج حدود قاموس المفردات (0..683)';
       default:
         return 'خطأ غير محدد: $code';
     }
@@ -85,6 +108,18 @@ class CameraDiagnosticData {
   final int height;
   final String format;
   final int rotation;
+  final int previewRotation;
+  final int detectorInputRotation;
+  final int framesReceived;
+  final DiagnosticStageStatus imageConversionStatus;
+  final String? imageConversionError;
+  final int personDetectorCalls;
+  final int personDetectorResults;
+  final int personDetectorErrors;
+  final int poseLandmarks;
+  final int faceLandmarks;
+  final int leftHandLandmarks;
+  final int rightHandLandmarks;
   final DateTime? lastFrameTime;
   final String? errorCode;
   final String? errorMessage;
@@ -99,6 +134,18 @@ class CameraDiagnosticData {
     this.height = 0,
     this.format = 'UNKNOWN',
     this.rotation = 0,
+    this.previewRotation = 0,
+    this.detectorInputRotation = 0,
+    this.framesReceived = 0,
+    this.imageConversionStatus = DiagnosticStageStatus.waiting,
+    this.imageConversionError,
+    this.personDetectorCalls = 0,
+    this.personDetectorResults = 0,
+    this.personDetectorErrors = 0,
+    this.poseLandmarks = 0,
+    this.faceLandmarks = 0,
+    this.leftHandLandmarks = 0,
+    this.rightHandLandmarks = 0,
     this.lastFrameTime,
     this.errorCode,
     this.errorMessage,
@@ -113,6 +160,17 @@ class CameraDiagnosticData {
     'resolution': '${width}x$height',
     'format': format,
     'rotation': rotation,
+    'previewRotation': previewRotation,
+    'detectorInputRotation': detectorInputRotation,
+    'framesReceived': framesReceived,
+    'imageConversion': imageConversionStatus.name,
+    'personDetectorCalls': personDetectorCalls,
+    'personDetectorResults': personDetectorResults,
+    'personDetectorErrors': personDetectorErrors,
+    'poseLandmarks': poseLandmarks,
+    'faceLandmarks': faceLandmarks,
+    'leftHandLandmarks': leftHandLandmarks,
+    'rightHandLandmarks': rightHandLandmarks,
     'errorCode': errorCode,
     'errorMessage': errorMessage,
   };
@@ -125,6 +183,10 @@ class PersonDiagnosticData {
   final bool posePresent;
   final bool facePresent;
   final bool headPresent;
+  final int poseLandmarks;
+  final int faceLandmarks;
+  final int leftHandLandmarks;
+  final int rightHandLandmarks;
   final String? failureReason;
   final String? errorCode;
 
@@ -134,6 +196,10 @@ class PersonDiagnosticData {
     this.posePresent = false,
     this.facePresent = false,
     this.headPresent = false,
+    this.poseLandmarks = 0,
+    this.faceLandmarks = 0,
+    this.leftHandLandmarks = 0,
+    this.rightHandLandmarks = 0,
     this.failureReason,
     this.errorCode,
   });
@@ -144,6 +210,10 @@ class PersonDiagnosticData {
     'posePresent': posePresent,
     'facePresent': facePresent,
     'headPresent': headPresent,
+    'poseLandmarks': poseLandmarks,
+    'faceLandmarks': faceLandmarks,
+    'leftHandLandmarks': leftHandLandmarks,
+    'rightHandLandmarks': rightHandLandmarks,
     'failureReason': failureReason,
     'errorCode': errorCode,
   };
@@ -434,10 +504,20 @@ class TfliteLoadDiagnosticData {
   final DiagnosticStageStatus status;
   final bool fileFound;
   final bool isLoaded;
+  final DiagnosticStageStatus modelFileStatus;
+  final int modelSizeBytes;
+  final double modelSizeMb;
+  final DiagnosticStageStatus interpreterStatus;
+  final DiagnosticStageStatus inputTensorStatus;
+  final DiagnosticStageStatus outputTensorStatus;
+  final DiagnosticStageStatus standaloneInferenceStatus;
+  final int standaloneInferenceTimeMs;
   final List<int>? inputShape;
   final List<int>? outputShape;
   final String inputType;
   final String outputType;
+  final String? exceptionType;
+  final String? exceptionMessage;
   final String? errorCode;
   final String? errorMessage;
 
@@ -445,10 +525,20 @@ class TfliteLoadDiagnosticData {
     this.status = DiagnosticStageStatus.waiting,
     this.fileFound = false,
     this.isLoaded = false,
+    this.modelFileStatus = DiagnosticStageStatus.waiting,
+    this.modelSizeBytes = 0,
+    this.modelSizeMb = 0.0,
+    this.interpreterStatus = DiagnosticStageStatus.waiting,
+    this.inputTensorStatus = DiagnosticStageStatus.waiting,
+    this.outputTensorStatus = DiagnosticStageStatus.waiting,
+    this.standaloneInferenceStatus = DiagnosticStageStatus.waiting,
+    this.standaloneInferenceTimeMs = 0,
     this.inputShape,
     this.outputShape,
     this.inputType = 'float32',
     this.outputType = 'float32',
+    this.exceptionType,
+    this.exceptionMessage,
     this.errorCode,
     this.errorMessage,
   });
@@ -457,10 +547,20 @@ class TfliteLoadDiagnosticData {
     'status': status.name,
     'fileFound': fileFound,
     'isLoaded': isLoaded,
+    'modelFileStatus': modelFileStatus.name,
+    'modelSizeBytes': modelSizeBytes,
+    'modelSizeMb': modelSizeMb.toStringAsFixed(2),
+    'interpreterStatus': interpreterStatus.name,
+    'inputTensorStatus': inputTensorStatus.name,
+    'outputTensorStatus': outputTensorStatus.name,
+    'standaloneInferenceStatus': standaloneInferenceStatus.name,
+    'standaloneInferenceTimeMs': standaloneInferenceTimeMs,
     'inputShape': inputShape,
     'outputShape': outputShape,
     'inputType': inputType,
     'outputType': outputType,
+    'exceptionType': exceptionType,
+    'exceptionMessage': exceptionMessage,
     'errorCode': errorCode,
     'errorMessage': errorMessage,
   };
@@ -753,30 +853,40 @@ class DiagnosticSnapshot {
     b.writeln('              ISHARA DIAGNOSTIC SNAPSHOT REPORT                 ');
     b.writeln('Captured At: ${capturedAt.toIso8601String()}');
     b.writeln('================================================================');
-    b.writeln('STAGE 1 — CAMERA:          ${camera.status.displayText} (${camera.fps.toStringAsFixed(1)} FPS, ${camera.width}x${camera.height}, age: ${camera.frameAgeMs}ms)');
-    if (camera.errorCode != null) b.writeln('   Error: ${camera.errorCode} - ${camera.errorMessage}');
-    b.writeln('STAGE 2 — PERSON:          ${person.status.displayText} (person=${person.personPresent}, pose=${person.posePresent}, head=${person.headPresent})');
-    if (person.errorCode != null) b.writeln('   Error: ${person.errorCode} - ${person.failureReason}');
-    b.writeln('STAGE 3 — HANDS:           ${hands.status.displayText} (L: ${hands.leftHandLandmarks} lms, R: ${hands.rightHandLandmarks} lms)');
-    b.writeln('STAGE 4 — FACE/HEAD/LIPS:  ${faceHead.status.displayText} (Head: ${faceHead.validHeadPoints}/25, Face: ${faceHead.validFacePoints}, Lips: ${faceHead.validLipPoints}/19)');
-    b.writeln('STAGE 5 — 86 KEYPOINTS:    ${keypoints.status.displayText} (Count: ${keypoints.keypointCount}/86, Valid: ${keypoints.validKeypoints}, Missing: ${keypoints.missingKeypoints})');
-    b.writeln('   Sample: P0=${keypoints.sampleP0}, P1=${keypoints.sampleP1}, P2=${keypoints.sampleP2}');
-    b.writeln('STAGE 6 — POINT GROUPS:    ${pointGroups.status.displayText} (Hands: ${pointGroups.totalHandValid}/42, Lips: ${pointGroups.faceLipValid}/19, Body: ${pointGroups.bodyValid}/25)');
-    b.writeln('STAGE 7 — PREPROCESSING:   ${preprocessing.status.displayText} (Raw: [${preprocessing.rawMinX.toStringAsFixed(2)}..${preprocessing.rawMaxX.toStringAsFixed(2)}], Norm: [${preprocessing.normMin.toStringAsFixed(2)}..${preprocessing.normMax.toStringAsFixed(2)}])');
-    b.writeln('STAGE 8 — BUFFER:          ${buffer.status.displayText} (${buffer.currentFrames}/${buffer.requiredFrames} frames, person: ${buffer.personFrames}, hands: ${buffer.handFrames})');
-    b.writeln('STAGE 9 — MODEL INPUT:     ${modelInput.status.displayText} (Shape: ${modelInput.shape}, ${modelInput.totalValues} values, zeros: ${modelInput.zeroPercentage.toStringAsFixed(1)}%)');
-    b.writeln('STAGE 10 — TFLITE LOAD:    ${tfliteLoad.status.displayText} (In: ${tfliteLoad.inputShape}, Out: ${tfliteLoad.outputShape})');
-    b.writeln('STAGE 11 — INFERENCE:      ${inference.status.displayText} (${inference.inferenceTimeMs} ms)');
-    if (inference.exceptionMessage != null) b.writeln('   Exception: ${inference.exceptionType}: ${inference.exceptionMessage}');
-    b.writeln('STAGE 12 — MODEL OUTPUT:   ${modelOutput.status.displayText} (Shape: ${modelOutput.outputShape}, NaN: ${modelOutput.nanCount})');
-    b.writeln('STAGE 13 — RAW TOP CLASSES:');
-    for (final c in rawTopClasses.top5) {
-      b.writeln('   #${c.rank}: ID ${c.classId} -> "${c.gloss}" (${(c.score * 100).toStringAsFixed(1)}%)');
-    }
-    b.writeln('STAGE 14 — CTC DECODER:    ${ctc.status.displayText} (Raw: ${ctc.rawIds} -> Collapsed: ${ctc.collapsedIds} -> Clean: ${ctc.afterBlankRemovalIds})');
-    b.writeln('STAGE 15 — VOCABULARY:     ${vocabulary.status.displayText} (${vocabulary.totalClasses} classes, valid=${vocabulary.isValid})');
-    b.writeln('STAGE 16 — FINAL GLOSS:    ${finalOutput.status.displayText} (Raw: "${finalOutput.rawModelGloss}", Decision: ${finalOutput.decision}, Final: "${finalOutput.finalGloss}")');
-    if (finalOutput.rejectionReason != null) b.writeln('   Rejection Reason: ${finalOutput.rejectionReason}');
+    b.writeln('--- MODEL SECTION ---');
+    b.writeln('MODEL FILE:              ${tfliteLoad.modelFileStatus.displayText} (${tfliteLoad.modelSizeBytes} bytes, ${tfliteLoad.modelSizeMb.toStringAsFixed(2)} MB)');
+    b.writeln('INTERPRETER:             ${tfliteLoad.interpreterStatus.displayText}');
+    if (tfliteLoad.exceptionMessage != null) b.writeln('   Interpreter Error: ${tfliteLoad.exceptionType}: ${tfliteLoad.exceptionMessage}');
+    b.writeln('INPUT TENSOR:            ${tfliteLoad.inputTensorStatus.displayText} (Actual: ${tfliteLoad.inputShape} vs Expected: [1, 128, 86, 2])');
+    b.writeln('OUTPUT TENSOR:           ${tfliteLoad.outputTensorStatus.displayText} (Actual: ${tfliteLoad.outputShape} vs Expected: [1, 29, 684])');
+    b.writeln('STANDALONE INFERENCE:    ${tfliteLoad.standaloneInferenceStatus.displayText} (${tfliteLoad.standaloneInferenceTimeMs} ms)');
+    b.writeln('MODEL OUTPUT:            ${modelOutput.status.displayText} (NaN: ${modelOutput.nanCount}, Inf: ${modelOutput.infinityCount}, Min: ${modelOutput.min.toStringAsFixed(2)}, Max: ${modelOutput.max.toStringAsFixed(2)})');
+    b.writeln('VOCABULARY:              ${vocabulary.status.displayText} (Classes: ${vocabulary.totalClasses}/684, CTC Blank ID: 0)');
+    b.writeln('');
+    b.writeln('--- CAMERA SECTION ---');
+    b.writeln('CAMERA:                  ${camera.status.displayText} (${camera.fps.toStringAsFixed(1)} FPS, ${camera.width}x${camera.height}, age: ${camera.frameAgeMs}ms)');
+    b.writeln('FRAMES RECEIVED:         ${camera.framesReceived}');
+    b.writeln('IMAGE CONVERSION:        ${camera.imageConversionStatus.displayText}');
+    if (camera.imageConversionError != null) b.writeln('   Image Error: ${camera.imageConversionError}');
+    b.writeln('PERSON DETECTOR CALLS:   ${camera.personDetectorCalls}');
+    b.writeln('PERSON DETECTOR RESULTS: ${camera.personDetectorResults}');
+    b.writeln('PERSON DETECTOR ERRORS:  ${camera.personDetectorErrors}');
+    b.writeln('PERSON:                  ${person.status.displayText} (Present: ${person.personPresent})');
+    b.writeln('POSE:                    [${camera.poseLandmarks} landmarks]');
+    b.writeln('FACE:                    [${camera.faceLandmarks} landmarks]');
+    b.writeln('LEFT HAND:               [${camera.leftHandLandmarks} landmarks]');
+    b.writeln('RIGHT HAND:              [${camera.rightHandLandmarks} landmarks]');
+    b.writeln('PREVIEW ROTATION:        ${camera.previewRotation} degrees');
+    b.writeln('DETECTOR INPUT ROTATION: ${camera.detectorInputRotation} degrees');
+    b.writeln('');
+    b.writeln('--- SIGN PIPELINE ---');
+    b.writeln('KEYPOINTS:               [${keypoints.validKeypoints} / 86]');
+    b.writeln('PREPROCESSING:           ${preprocessing.status.displayText}');
+    b.writeln('BUFFER:                  [${buffer.currentFrames} / 128]');
+    b.writeln('REAL INPUT:              ${modelInput.status.displayText}');
+    b.writeln('REAL INFERENCE:          ${inference.status.displayText} (${inference.inferenceTimeMs} ms)');
+    b.writeln('CTC:                     ${ctc.status.displayText} (Raw: ${ctc.rawIds} -> Clean: ${ctc.afterBlankRemovalIds})');
+    b.writeln('FINAL GLOSS:             ${finalOutput.finalGloss ?? "NONE"}');
     b.writeln('================================================================');
     b.writeln('RECENT DIAGNOSTIC EVENTS (Last ${recentEvents.length}):');
     for (final e in recentEvents) {
