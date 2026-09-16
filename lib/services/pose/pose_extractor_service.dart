@@ -56,6 +56,25 @@ class ExtractedPoseFrame {
   });
 }
 
+/// نتيجة الفحص التشخيصي للصورة الثابتة لليد (Static Image Hand Test)
+class StaticHandTestResult {
+  final bool success;
+  final int handsDetected;
+  final int landmarksCount;
+  final double confidence;
+  final int elapsedMs;
+  final String? errorMessage;
+
+  const StaticHandTestResult({
+    required this.success,
+    required this.handsDetected,
+    required this.landmarksCount,
+    required this.confidence,
+    required this.elapsedMs,
+    this.errorMessage,
+  });
+}
+
 /// خدمة استخراج معالم الأيدي والوجه والجسم الـ 86 من إطارات الكاميرا
 /// تراعي توجيه المستشعر، تدوير الكاميرا، والكاميرا الأمامية/الخلفية بدقة.
 class PoseExtractorService {
@@ -116,6 +135,78 @@ class PoseExtractorService {
         '[PoseExtractorService] ❌ Failed to initialize hand detector: $e\n$stack',
       );
       return false;
+    }
+  }
+
+  /// اختبار صورة يد ثابتة مباشرة لعزل الكاشف والتهيئة عن تدفق الكاميرا (Static Hand Test - TASK 4)
+  Future<StaticHandTestResult> runStaticHandTest({
+    String assetPath = 'assets/models/static_hand_test.jpg',
+  }) async {
+    debugPrint('════════════════════════════════════════════════════════════');
+    debugPrint('[TASK 4] 🖐️ STARTING STATIC IMAGE HAND TEST ($assetPath)');
+    debugPrint('════════════════════════════════════════════════════════════');
+
+    final sw = Stopwatch()..start();
+    try {
+      if (!_isInitialized || _handDetector == null) {
+        final ok = await initialize();
+        if (!ok || _handDetector == null) {
+          sw.stop();
+          return StaticHandTestResult(
+            success: false,
+            handsDetected: 0,
+            landmarksCount: 0,
+            confidence: 0.0,
+            elapsedMs: sw.elapsedMilliseconds,
+            errorMessage: 'HandDetector initialization failed: $_lastHandDetectorError',
+          );
+        }
+      }
+
+      final byteData = await rootBundle.load(assetPath);
+      final imageBytes = byteData.buffer.asUint8List(
+        byteData.offsetInBytes,
+        byteData.lengthInBytes,
+      );
+
+      debugPrint('[StaticHandTest] Loaded image: ${imageBytes.lengthInBytes} bytes');
+      final hands = await _handDetector!.detect(imageBytes);
+      sw.stop();
+
+      debugPrint('[StaticHandTest] Hands detected: ${hands.length}');
+      if (hands.isNotEmpty) {
+        final firstHand = hands.first;
+        final lmCount = firstHand.landmarks.length;
+        debugPrint('[StaticHandTest] Hand 0 landmarks: $lmCount, confidence: ${firstHand.score}');
+        final bool pass = lmCount == 21;
+        return StaticHandTestResult(
+          success: pass,
+          handsDetected: hands.length,
+          landmarksCount: lmCount,
+          confidence: firstHand.score,
+          elapsedMs: sw.elapsedMilliseconds,
+        );
+      } else {
+        return StaticHandTestResult(
+          success: false,
+          handsDetected: 0,
+          landmarksCount: 0,
+          confidence: 0.0,
+          elapsedMs: sw.elapsedMilliseconds,
+          errorMessage: 'Detector returned 0 hands for static image',
+        );
+      }
+    } catch (e, stack) {
+      sw.stop();
+      debugPrint('[StaticHandTest] ❌ Exception: $e\n$stack');
+      return StaticHandTestResult(
+        success: false,
+        handsDetected: 0,
+        landmarksCount: 0,
+        confidence: 0.0,
+        elapsedMs: sw.elapsedMilliseconds,
+        errorMessage: e.toString(),
+      );
     }
   }
 
@@ -252,6 +343,17 @@ class PoseExtractorService {
       final bool handPresent =
           rightHandPoints != null || leftHandPoints != null;
 
+      // ──────────────── TASK 3: HAND DETECTOR DIAGNOSTIC LOGGING ────────────────
+      final timestamp = DateTime.now().toIso8601String();
+      debugPrint('[HAND DETECTOR] timestamp: $timestamp');
+      debugPrint('[HAND DETECTOR] image: ${image.width}x${image.height}');
+      debugPrint('[HAND DETECTOR] rotation: ${rotation?.name ?? "none"}');
+      debugPrint('[HAND DETECTOR] lens direction: ${isFrontCamera ? "front" : "back"}');
+      debugPrint('[HAND DETECTOR] image format: ${image.format.group.name}');
+      debugPrint('[HAND DETECTOR] detector running mode: boxesAndLandmarks (live stream)');
+      debugPrint('[HAND DETECTOR] numberOfHands: ${hands.length}');
+      debugPrint('[HAND DETECTOR] leftHand landmark count: ${leftHandPoints?.length ?? 0}');
+      debugPrint('[HAND DETECTOR] rightHand landmark count: ${rightHandPoints?.length ?? 0}');
       debugPrint('HAND DETECTOR CALLS = $_handDetectorCalls');
       debugPrint('HAND DETECTOR RESULTS = $_handDetectorResults');
       debugPrint('HAND DETECTOR ERRORS = $_handDetectorErrors');

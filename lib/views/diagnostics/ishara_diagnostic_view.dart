@@ -70,6 +70,41 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView>
     }
   }
 
+  bool _isRunningStaticHandTest = false;
+
+  Future<void> _runStaticHandTest() async {
+    if (_isRunningStaticHandTest) return;
+    setState(() => _isRunningStaticHandTest = true);
+
+    try {
+      final signRecognition = context.read<SignRecognitionProvider>();
+      final result = await signRecognition.runStaticHandTest();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.success
+                ? '✅ نجح فحص الصورة الثابتة: HAND DETECTOR = PASS (${result.landmarksCount}/21 معلماً, ${result.elapsedMs} ms)'
+                : '❌ فشل فحص الصورة الثابتة: اكتشف ${result.handsDetected} يد. ${result.errorMessage ?? ""}',
+          ),
+          backgroundColor: result.success ? Colors.teal : Colors.redAccent,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('⚠️ خطأ في فحص اليد الثابتة: $e'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isRunningStaticHandTest = false);
+    }
+  }
+
   void _copySnapshot() {
     final snapshot = _diagService.takeSnapshot();
     final text = snapshot.toFormattedText();
@@ -473,7 +508,27 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView>
           status: hands.status,
           errorCode: hands.errorCode,
           failureReason: hands.errorMessage,
+          trailing: ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.amber[800],
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            ),
+            icon: _isRunningStaticHandTest
+                ? const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.pan_tool_outlined, size: 14),
+            label: Text(
+              _isRunningStaticHandTest ? 'جارٍ الفحص...' : 'فحص يد ثابتة',
+              style: const TextStyle(fontSize: 11),
+            ),
+            onPressed: _isRunningStaticHandTest ? null : _runStaticHandTest,
+          ),
           details: [
+            'فحص صورة ثابتة (TASK 4): ${hands.staticHandTestStatus.displayText} [${hands.staticHandLandmarks}/21 معلماً]',
             'استدعاءات كاشف اليد (Calls): ${hands.handDetectorCalls}',
             'النتائج الناجحة (Results): ${hands.handDetectorResults}',
             'الأخطاء والاستثناءات (Errors): ${hands.handDetectorErrors}',
@@ -640,6 +695,7 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView>
     String? errorCode,
     String? failureReason,
     required List<String> details,
+    Widget? trailing,
   }) {
     final Color color;
     switch (status) {
@@ -674,16 +730,25 @@ class _IsharaDiagnosticViewState extends State<IsharaDiagnosticView>
           title,
           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
         ),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.2),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            status.displayText,
-            style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12),
-          ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (trailing != null) ...[
+              trailing,
+              const SizedBox(width: 8),
+            ],
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                status.displayText,
+                style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12),
+              ),
+            ),
+          ],
         ),
         children: [
           Container(

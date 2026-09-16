@@ -159,7 +159,7 @@ class IsharaRecognitionService {
         );
         if (preview.contains('git-lfs') || preview.startsWith('version https://git-lfs')) {
           debugPrint('MODEL FILE = GIT LFS POINTER');
-          debugPrint('ERROR: ${DiagnosticErrorCodes.e003ModelIsGitLfsPointer}');
+          debugPrint('ERROR: ${DiagnosticErrorCodes.e001TfliteLfsPointer}');
           debugPrint('MODEL BYTES: $fileBytes (Expected ~107.55 MB)');
 
           IsharaDiagnosticService().recordTfliteLoad(
@@ -169,8 +169,8 @@ class IsharaRecognitionService {
             modelSizeBytes: fileBytes,
             modelSizeMb: fileSizeMb,
             interpreterStatus: DiagnosticStageStatus.waiting,
-            errorCode: DiagnosticErrorCodes.e003ModelIsGitLfsPointer,
-            errorMessage: 'MODEL FILE = GIT LFS POINTER ($fileBytes bytes). The real ~107.55 MB binary was not packaged into the Flutter asset bundle.',
+            errorCode: DiagnosticErrorCodes.e001TfliteLfsPointer,
+            errorMessage: 'MODEL FILE = GIT LFS POINTER ($fileBytes bytes). E001_TFLITE_LFS_POINTER: Real ~107.55 MB model binary was not bundled.',
           );
 
           return ModelDiagnosticResult(
@@ -182,8 +182,8 @@ class IsharaRecognitionService {
             standaloneInferencePassed: false,
             inferenceTimeMs: 0,
             outputValid: false,
-            errorCode: DiagnosticErrorCodes.e003ModelIsGitLfsPointer,
-            errorMessage: 'MODEL FILE = GIT LFS POINTER ($fileBytes bytes)',
+            errorCode: DiagnosticErrorCodes.e001TfliteLfsPointer,
+            errorMessage: 'E001_TFLITE_LFS_POINTER: MODEL FILE = GIT LFS POINTER ($fileBytes bytes)',
           );
         } else {
           debugPrint('ERROR: Model size $fileBytes bytes is under 100MB threshold (Expected ~107.55 MB)');

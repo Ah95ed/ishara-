@@ -21,6 +21,7 @@ class DiagnosticErrorCodes {
   static const String e001ModelAssetNotFound = 'E001_MODEL_ASSET_NOT_FOUND';
   static const String e002ModelAssetEmpty = 'E002_MODEL_ASSET_EMPTY';
   static const String e003ModelIsGitLfsPointer = 'E003_MODEL_IS_GIT_LFS_POINTER';
+  static const String e001TfliteLfsPointer = 'E001_TFLITE_LFS_POINTER';
   static const String e010InterpreterCreateFailed = 'E010_INTERPRETER_CREATE_FAILED';
   static const String e011TensorShapeMismatch = 'E011_TENSOR_SHAPE_MISMATCH';
   static const String e012StandaloneInferenceFailed = 'E012_STANDALONE_INFERENCE_FAILED';
@@ -59,6 +60,7 @@ class DiagnosticErrorCodes {
   static const String e604InvalidModelOutput = 'E604_INVALID_MODEL_OUTPUT';
   static const String e701CtcFailed = 'E701_CTC_FAILED';
   static const String e801VocabMismatch = 'E801_VOCAB_MISMATCH';
+  static const String upstreamKeypointsInvalid = 'UPSTREAM_KEYPOINTS_INVALID';
 
   static String getDescription(String code) {
     switch (code) {
@@ -66,8 +68,9 @@ class DiagnosticErrorCodes {
         return 'ملف الموديل غير موجود في الأصول (E001_MODEL_ASSET_NOT_FOUND)';
       case e002ModelAssetEmpty:
         return 'ملف الموديل فارغ 0 بايت (E002_MODEL_ASSET_EMPTY)';
+      case e001TfliteLfsPointer:
       case e003ModelIsGitLfsPointer:
-        return 'ملف الموديل عبارة عن مؤشر Git LFS (134 بايت) وليس الملف الحقيقي (E003_MODEL_IS_GIT_LFS_POINTER)';
+        return 'ملف الموديل عبارة عن مؤشر Git LFS (134 بايت) وليس الملف الحقيقي (E001_TFLITE_LFS_POINTER)';
       case e010InterpreterCreateFailed:
         return 'فشل إنشاء Interpreter للنموذج (E010_INTERPRETER_CREATE_FAILED)';
       case e202HandDetectorNotCalled:
@@ -244,6 +247,10 @@ class HandsDiagnosticData {
   final int handDetectorErrors;
   final int leftHandResults;
   final int rightHandResults;
+  final DiagnosticStageStatus staticHandTestStatus;
+  final int staticHandsDetected;
+  final int staticHandLandmarks;
+  final double staticHandConfidence;
   final String? exceptionType;
   final String? stackTraceSnippet;
   final String? errorCode;
@@ -262,6 +269,10 @@ class HandsDiagnosticData {
     this.handDetectorErrors = 0,
     this.leftHandResults = 0,
     this.rightHandResults = 0,
+    this.staticHandTestStatus = DiagnosticStageStatus.waiting,
+    this.staticHandsDetected = 0,
+    this.staticHandLandmarks = 0,
+    this.staticHandConfidence = 0.0,
     this.exceptionType,
     this.stackTraceSnippet,
     this.errorCode,
@@ -277,6 +288,12 @@ class HandsDiagnosticData {
     'handDetectorErrors': handDetectorErrors,
     'leftHandResults': leftHandResults,
     'rightHandResults': rightHandResults,
+    'staticHandTest': {
+      'status': staticHandTestStatus.name,
+      'handsDetected': staticHandsDetected,
+      'landmarks': staticHandLandmarks,
+      'confidence': staticHandConfidence,
+    },
     'exceptionType': exceptionType,
     'errorCode': errorCode,
     'errorMessage': errorMessage,
@@ -908,6 +925,7 @@ class DiagnosticSnapshot {
     b.writeln('HAND DETECTOR CALLS:     ${hands.handDetectorCalls}');
     b.writeln('HAND DETECTOR RESULTS:   ${hands.handDetectorResults}');
     b.writeln('HAND DETECTOR ERRORS:    ${hands.handDetectorErrors}');
+    b.writeln('STATIC HAND TEST:        ${hands.staticHandTestStatus.displayText} [${hands.staticHandLandmarks}/21 landmarks] (Hands: ${hands.staticHandsDetected})');
     b.writeln('LEFT HAND:               [${hands.leftHandLandmarks}/21 landmarks]');
     b.writeln('RIGHT HAND:              [${hands.rightHandLandmarks}/21 landmarks]');
     if (hands.errorMessage != null) b.writeln('   Hand Status: ${hands.errorCode ?? ""} ${hands.errorMessage}');

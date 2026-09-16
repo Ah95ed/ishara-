@@ -175,6 +175,20 @@ class SignRecognitionProvider extends ChangeNotifier {
     return result;
   }
 
+  /// تشغيل الفحص الإلزامي لصورة اليد الثابتة (TASK 4 - Static Image Hand Test)
+  Future<StaticHandTestResult> runStaticHandTest() async {
+    final result = await _poseExtractor.runStaticHandTest();
+    IsharaDiagnosticService().recordStaticHandTest(
+      success: result.success,
+      handsDetected: result.handsDetected,
+      landmarksCount: result.landmarksCount,
+      confidence: result.confidence,
+      errorMessage: result.errorMessage,
+    );
+    notifyListeners();
+    return result;
+  }
+
   /// بدء عملية التعرف المستمر
   void startRecognition() {
     _isRecognizing = true;
@@ -666,15 +680,27 @@ class SignRecognitionProvider extends ChangeNotifier {
       confidence: extracted.headConfidence,
     );
 
+    final int actualBodyPoints = extracted.body?.length ?? 0;
+    final int actualLipPoints = extracted.lips?.length ?? 0;
+    final int actualLeftHandPoints = extracted.leftHand?.length ?? 0;
+    final int actualRightHandPoints = extracted.rightHand?.length ?? 0;
+    final int actualExtractedKeypoints = actualBodyPoints +
+        actualLipPoints +
+        actualLeftHandPoints +
+        actualRightHandPoints;
+
     // 5. 86 Keypoints
-    diag.record86Keypoints(frame86x2);
+    diag.record86Keypoints(
+      frame86x2,
+      actualExtractedCount: actualExtractedKeypoints,
+    );
 
     // 6. Point Groups
     diag.recordPointGroups(
-      rightHandValid: extracted.rightHand?.length ?? 0,
-      leftHandValid: extracted.leftHand?.length ?? 0,
-      faceLipValid: extracted.lips?.length ?? 0,
-      bodyValid: extracted.body?.length ?? 0,
+      rightHandValid: actualRightHandPoints,
+      leftHandValid: actualLeftHandPoints,
+      faceLipValid: actualLipPoints,
+      bodyValid: actualBodyPoints,
     );
 
     // 7. Preprocessing
@@ -721,6 +747,9 @@ class SignRecognitionProvider extends ChangeNotifier {
     if (normMin == double.infinity) normMin = 0.0;
     if (normMax == double.negativeInfinity) normMax = 0.0;
 
+    // TASK 7: Preprocessing لا يكون PASS إذا كانت Keypoints غير مكتملة (أقل من 86)
+    final bool isKeypointsValid = actualExtractedKeypoints == 86;
+
     diag.recordPreprocessing(
       rawMinX: rawMinX,
       rawMaxX: rawMaxX,
@@ -732,6 +761,7 @@ class SignRecognitionProvider extends ChangeNotifier {
       hasNan: hasNan,
       hasInfinity: hasInf,
       hasExtremeValues: hasExtreme,
+      isKeypointsValid: isKeypointsValid,
     );
 
     // 8. Buffer

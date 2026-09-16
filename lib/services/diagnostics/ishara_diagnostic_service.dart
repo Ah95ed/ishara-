@@ -293,6 +293,10 @@ class IsharaDiagnosticService extends ChangeNotifier {
     int handDetectorErrors = 0,
     int leftHandResults = 0,
     int rightHandResults = 0,
+    DiagnosticStageStatus? staticHandTestStatus,
+    int? staticHandsDetected,
+    int? staticHandLandmarks,
+    double? staticHandConfidence,
     String? exceptionType,
     String? stackTraceSnippet,
     String? errorMessage,
@@ -329,6 +333,10 @@ class IsharaDiagnosticService extends ChangeNotifier {
       handDetectorErrors: handDetectorErrors,
       leftHandResults: leftHandResults,
       rightHandResults: rightHandResults,
+      staticHandTestStatus: staticHandTestStatus ?? _hands.staticHandTestStatus,
+      staticHandsDetected: staticHandsDetected ?? _hands.staticHandsDetected,
+      staticHandLandmarks: staticHandLandmarks ?? _hands.staticHandLandmarks,
+      staticHandConfidence: staticHandConfidence ?? _hands.staticHandConfidence,
       exceptionType: exceptionType,
       stackTraceSnippet: stackTraceSnippet,
       errorCode: errCode,
@@ -344,6 +352,46 @@ class IsharaDiagnosticService extends ChangeNotifier {
       );
       _skipDownstreamFrom(5);
     }
+    notifyListeners();
+  }
+
+  void recordStaticHandTest({
+    required bool success,
+    required int handsDetected,
+    required int landmarksCount,
+    required double confidence,
+    String? errorMessage,
+  }) {
+    if (_isFrozen) return;
+
+    _hands = HandsDiagnosticData(
+      status: _hands.status,
+      leftHandDetected: _hands.leftHandDetected,
+      leftHandLandmarks: _hands.leftHandLandmarks,
+      leftHandConfidence: _hands.leftHandConfidence,
+      rightHandDetected: _hands.rightHandDetected,
+      rightHandLandmarks: _hands.rightHandLandmarks,
+      rightHandConfidence: _hands.rightHandConfidence,
+      handDetectorCalls: _hands.handDetectorCalls,
+      handDetectorResults: _hands.handDetectorResults,
+      handDetectorErrors: _hands.handDetectorErrors,
+      leftHandResults: _hands.leftHandResults,
+      rightHandResults: _hands.rightHandResults,
+      staticHandTestStatus: success ? DiagnosticStageStatus.pass : DiagnosticStageStatus.fail,
+      staticHandsDetected: handsDetected,
+      staticHandLandmarks: landmarksCount,
+      staticHandConfidence: confidence,
+      exceptionType: _hands.exceptionType,
+      stackTraceSnippet: _hands.stackTraceSnippet,
+      errorCode: _hands.errorCode,
+      errorMessage: errorMessage ?? _hands.errorMessage,
+    );
+
+    _recordEvent(
+      'STATIC HAND TEST',
+      success ? DiagnosticStageStatus.pass : DiagnosticStageStatus.fail,
+      'Hands: $handsDetected, Landmarks: $landmarksCount/21, Confidence: ${(confidence * 100).toStringAsFixed(1)}%',
+    );
     notifyListeners();
   }
 
@@ -374,7 +422,10 @@ class IsharaDiagnosticService extends ChangeNotifier {
   }
 
   // ──────────────────────────── 5. EXACT 86 KEYPOINTS ────────────────────────────
-  void record86Keypoints(List<List<double>>? frame86) {
+  void record86Keypoints(
+    List<List<double>>? frame86, {
+    int actualExtractedCount = 0,
+  }) {
     if (_isFrozen) return;
 
     if (frame86 == null) {
@@ -390,7 +441,6 @@ class IsharaDiagnosticService extends ChangeNotifier {
     }
 
     final int count = frame86.length;
-    int validCount = 0;
     int nanCount = 0;
     int infCount = 0;
     int zeroCount = 0;
@@ -410,12 +460,12 @@ class IsharaDiagnosticService extends ChangeNotifier {
         infCount++;
       } else if (x.abs() < 1e-7 && y.abs() < 1e-7) {
         zeroCount++;
-      } else {
-        validCount++;
       }
     }
 
-    final bool countOk = count == 86;
+    // TASK 6: النتيجة تُحسب من actual extracted landmarks فقط وليس من مصفوفة التطبيع ذات الأصفار
+    final int validCount = actualExtractedCount.clamp(0, 86);
+    final bool countOk = count == 86 && validCount == 86;
     final bool valuesOk = nanCount == 0 && infCount == 0;
     final bool overallOk = countOk && valuesOk;
 
@@ -423,7 +473,7 @@ class IsharaDiagnosticService extends ChangeNotifier {
     String? errMsg;
     if (!countOk) {
       errCode = DiagnosticErrorCodes.e301KeypointCount;
-      errMsg = 'Expected: 86, Received: $count';
+      errMsg = 'Expected: 86 extracted, Actual extracted: $validCount/86 (Frame length: $count)';
     } else if (!valuesOk) {
       errCode = DiagnosticErrorCodes.e302InvalidKeypointValues;
       errMsg = 'Invalid coordinates detected (NaN: $nanCount, Inf: $infCount)';
@@ -445,7 +495,7 @@ class IsharaDiagnosticService extends ChangeNotifier {
           : DiagnosticStageStatus.fail,
       keypointCount: count,
       validKeypoints: validCount,
-      missingKeypoints: count - validCount,
+      missingKeypoints: 86 - validCount,
       nanCount: nanCount,
       infinityCount: infCount,
       zeroCount: zeroCount,
@@ -517,8 +567,31 @@ class IsharaDiagnosticService extends ChangeNotifier {
     required bool hasNan,
     required bool hasInfinity,
     required bool hasExtremeValues,
+    bool isKeypointsValid = true,
   }) {
     if (_isFrozen) return;
+
+    // TASK 7: PREPROCESSING لا يجوز أن يكون PASS إذا Keypoints غير مكتملة أو mapping غير صالح.
+    if (!isKeypointsValid) {
+      _preprocessing = PreprocessingDiagnosticData(
+        status: DiagnosticStageStatus.skipped,
+        rawMinX: rawMinX,
+        rawMaxX: rawMaxX,
+        rawMinY: rawMinY,
+        rawMaxY: rawMaxY,
+        normMin: normMin,
+        normMax: normMax,
+        normMean: normMean,
+        hasNan: hasNan,
+        hasInfinity: hasInfinity,
+        hasExtremeValues: hasExtremeValues,
+        errorCode: DiagnosticErrorCodes.upstreamKeypointsInvalid,
+        errorMessage: 'UPSTREAM_KEYPOINTS_INVALID',
+      );
+      _skipDownstreamFrom(8);
+      notifyListeners();
+      return;
+    }
 
     final bool ok = !hasNan && !hasInfinity && !hasExtremeValues;
     final String? errCode = hasNan
