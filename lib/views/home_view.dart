@@ -1,17 +1,16 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:ishara/constants/app_constants.dart';
 import 'package:ishara/controllers/camera_controller.dart';
 import 'package:ishara/controllers/gloss_controller.dart';
-import 'package:ishara/controllers/sign_controller.dart';
 import 'package:ishara/providers/sign_recognition_provider.dart';
 import 'package:ishara/services/pose/sign_state_machine.dart';
 import 'package:ishara/services/temporal_stabilizer.dart';
 import 'package:ishara/views/diagnostics/ishara_diagnostic_view.dart';
 import 'package:ishara/views/widgets/camera_preview_widget.dart';
 import 'package:ishara/views/widgets/hand_landmarks_debug_panel.dart';
+import 'package:ishara/views/widgets/vision_diagnostic_panel.dart';
 import 'package:provider/provider.dart';
 
 class HomeView extends StatefulWidget {
@@ -45,34 +44,6 @@ class _HomeViewState extends State<HomeView> {
     try {
       final cameraProvider = context.read<CameraProvider>();
       await cameraProvider.processFrame(image);
-      if (!mounted) return;
-
-      // تشغيل نموذج CSLR Transformer مع فك شفرة CTC ومعالجة الـ 86 نقطة
-      final signRecognition = context.read<SignRecognitionProvider>();
-      if (signRecognition.isRecognizing) {
-        final isFront =
-            cameraProvider.cameraController?.description.lensDirection ==
-            CameraLensDirection.front;
-        final sensorOrientation =
-            cameraProvider.cameraController?.description.sensorOrientation;
-        final deviceOrientation =
-            cameraProvider.cameraController?.value.deviceOrientation ??
-            DeviceOrientation.portraitUp;
-        await signRecognition.processFrame(
-          image,
-          sensorOrientation: sensorOrientation,
-          isFrontCamera: isFront,
-          deviceOrientation: deviceOrientation,
-        );
-      }
-
-      if (!mounted) return;
-      final signProvider = context.read<SignProvider>();
-      if (cameraProvider.isRealHand && cameraProvider.latestLandmarks != null) {
-        await signProvider.processLandmarks(cameraProvider.latestLandmarks);
-      } else {
-        await signProvider.processLandmarks(null);
-      }
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[HomeView] ⚠️ Error in _onCameraImage: $e');
@@ -178,8 +149,10 @@ class _HomeViewState extends State<HomeView> {
         children: [
           _buildCameraSection(context),
           const SizedBox(height: 14),
-          _buildTranslationSection(context),
+          const VisionDiagnosticPanel(),
           if (_developerDebugMode) ...[
+            const SizedBox(height: 14),
+            _buildTranslationSection(context),
             const SizedBox(height: 12),
             _buildDebugPanelSection(context),
           ],
@@ -202,7 +175,11 @@ class _HomeViewState extends State<HomeView> {
                 children: [
                   _buildCameraSection(context),
                   const SizedBox(height: 14),
-                  _buildTranslationSection(context),
+                  const VisionDiagnosticPanel(),
+                  if (_developerDebugMode) ...[
+                    const SizedBox(height: 14),
+                    _buildTranslationSection(context),
+                  ],
                 ],
               ),
             ),

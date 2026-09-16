@@ -17,6 +17,29 @@ enum DiagnosticStageStatus {
 
 /// رموز الأخطاء الثابتة الصارمة للمطور
 class DiagnosticErrorCodes {
+  // ── Unified Vision Pipeline Error Codes (Stages 1-10) ──
+  static const String e100Camera = 'E100_CAMERA';
+  static const String e101CameraFrame = 'E101_CAMERA_FRAME';
+  static const String e102ImageFormat = 'E102_IMAGE_FORMAT';
+  static const String e103Rotation = 'E103_ROTATION';
+
+  static const String e200HolisticInit = 'E200_HOLISTIC_INIT';
+
+  static const String e300Person = 'E300_PERSON';
+  static const String e301Pose = 'E301_POSE';
+
+  static const String e400Head = 'E400_HEAD';
+  static const String e401Face = 'E401_FACE';
+  static const String e402Lips = 'E402_LIPS';
+  static const String e403FaceMapping = 'E403_FACE_MAPPING';
+
+  static const String e500LeftHand = 'E500_LEFT_HAND';
+  static const String e501RightHand = 'E501_RIGHT_HAND';
+  static const String e502Handedness = 'E502_HANDEDNESS';
+
+  static const String e600KeypointMapping = 'E600_KEYPOINT_MAPPING';
+  static const String e601KeypointCount = 'E601_KEYPOINT_COUNT';
+
   // Model Diagnostic Error Codes (Part A)
   static const String e001ModelAssetNotFound = 'E001_MODEL_ASSET_NOT_FOUND';
   static const String e002ModelAssetEmpty = 'E002_MODEL_ASSET_EMPTY';
@@ -64,6 +87,38 @@ class DiagnosticErrorCodes {
 
   static String getDescription(String code) {
     switch (code) {
+      case e100Camera:
+        return 'الكاميرا غير مهيأة أو حدث استثناء أثناء التهيئة (E100_CAMERA)';
+      case e101CameraFrame:
+        return 'الكاميرا لا ترسل إطارات حية أو البث متوقف لأكثر من 1.5 ثانية (E101_CAMERA_FRAME)';
+      case e102ImageFormat:
+        return 'صيغة صورة الكاميرا غير صالحة أو غير مدعومة (E102_IMAGE_FORMAT)';
+      case e103Rotation:
+        return 'زاوية دوران المستشعر أو المعاينة غير صالحة (E103_ROTATION)';
+      case e200HolisticInit:
+        return 'فشل تهيئة MediaPipe Holistic (E200_HOLISTIC_INIT)';
+      case e300Person:
+        return 'لم يتم اكتشاف وجود شخص أمام الكاميرا (E300_PERSON)';
+      case e301Pose:
+        return 'معالم وضعية الجسم Pose مفقودة أو غير مكتملة (E301_POSE)';
+      case e400Head:
+        return 'الرأس غير مكتشف (E400_HEAD)';
+      case e401Face:
+        return 'معالم الوجه مفقودة (E401_FACE)';
+      case e402Lips:
+        return 'معالم الشفاه غير مكتشفة (E402_LIPS)';
+      case e403FaceMapping:
+        return 'فشل رسم خريطة الـ 19 نقطة للشفاه والوجه (E403_FACE_MAPPING)';
+      case e500LeftHand:
+        return 'اليد اليسرى غير مكتشفة 0/21 (E500_LEFT_HAND)';
+      case e501RightHand:
+        return 'اليد اليمنى غير مكتشفة 0/21 (E501_RIGHT_HAND)';
+      case e502Handedness:
+        return 'خلل في تحديد اليد اليسرى واليمنى Handedness (E502_HANDEDNESS)';
+      case e600KeypointMapping:
+        return 'فشل تجميع الـ 86 نقطة الموحدة (E600_KEYPOINT_MAPPING)';
+      case e601KeypointCount:
+        return 'إجمالي النقاط المكتشفة غير مكتمل 86 (E601_KEYPOINT_COUNT)';
       case e001ModelAssetNotFound:
         return 'ملف الموديل غير موجود في الأصول (E001_MODEL_ASSET_NOT_FOUND)';
       case e002ModelAssetEmpty:
@@ -124,6 +179,7 @@ class CameraDiagnosticData {
   final int rotation;
   final int previewRotation;
   final int detectorInputRotation;
+  final bool isFrontCamera;
   final int framesReceived;
   final DiagnosticStageStatus imageConversionStatus;
   final String? imageConversionError;
@@ -150,6 +206,7 @@ class CameraDiagnosticData {
     this.rotation = 0,
     this.previewRotation = 0,
     this.detectorInputRotation = 0,
+    this.isFrontCamera = true,
     this.framesReceived = 0,
     this.imageConversionStatus = DiagnosticStageStatus.waiting,
     this.imageConversionError,
@@ -176,6 +233,7 @@ class CameraDiagnosticData {
     'rotation': rotation,
     'previewRotation': previewRotation,
     'detectorInputRotation': detectorInputRotation,
+    'isFrontCamera': isFrontCamera,
     'framesReceived': framesReceived,
     'imageConversion': imageConversionStatus.name,
     'personDetectorCalls': personDetectorCalls,

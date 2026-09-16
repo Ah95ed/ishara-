@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:ishara/constants/app_constants.dart';
 import 'package:ishara/models/landmarks_model.dart';
 import 'package:ishara/services/camera_service.dart';
@@ -80,6 +79,15 @@ class CameraProvider extends ChangeNotifier {
   double get lastProcessingTimeMs => _lastProcessingTimeMs;
   double get currentFps => _currentFps;
   bool get isProcessingFrame => _isProcessingFrame;
+
+  // مواصفات إطارات الكاميرا (المرحلة 1)
+  int get imageWidth => _latestImage?.width ?? 0;
+  int get imageHeight => _latestImage?.height ?? 0;
+  String get imageFormat => _latestImage?.format.group.name ?? 'unknown';
+  bool get isFrontCamera => _cameraService.isFrontCamera;
+  int get sensorRotation => _cameraService.sensorOrientation ?? 0;
+  int get previewRotation => _cameraService.sensorOrientation ?? 0;
+  int get detectorRotation => _cameraService.sensorOrientation ?? 0;
 
   // ────────────────────────────────── Methods ──────────────────────────────────
 
@@ -176,7 +184,6 @@ class CameraProvider extends ChangeNotifier {
   /// معالجة إطار الكاميرا — نقطة الدخول الرئيسية مع خفض الفريمات (10-15 FPS)
   Future<void> processFrame(CameraImage image) async {
     _currentFrameSequence++;
-    final thisFrameId = _currentFrameSequence;
 
     // 1. خفض معدل الفريمات (Frame Throttling: 10-15 FPS)
     final now = DateTime.now();
@@ -197,12 +204,14 @@ class CameraProvider extends ChangeNotifier {
     _isProcessingFrame = true;
     _latestImage = image;
     final sw = Stopwatch()..start();
-    final bool wasRealHandBefore = _isRealHand;
 
     try {
       _calcFps();
 
-      final frameAge = _lastProcessedFrameTime != null ? now.difference(_lastProcessedFrameTime!).inMilliseconds : 0;
+      final frameAge = _lastProcessedFrameTime != null
+          ? now.difference(_lastProcessedFrameTime!).inMilliseconds
+          : 0;
+
       IsharaDiagnosticService().recordCamera(
         isInitialized: _cameraService.isInitialized,
         isStreaming: isStreaming,
@@ -212,33 +221,19 @@ class CameraProvider extends ChangeNotifier {
         height: image.height,
         format: image.format.group.name,
         rotation: _cameraService.sensorOrientation ?? 0,
+        previewRotation: previewRotation,
+        detectorInputRotation: detectorRotation,
+        isFrontCamera: isFrontCamera,
+        framesReceived: _currentFrameSequence,
       );
-
-      // ── كشف اليد عبر hand_detection package مع التدوير واتجاه الكاميرا ──
-      final HandLandmarks? result = await _handDetectionService.detectHands(
-        image,
-        frameId: thisFrameId,
-        sensorOrientation: _cameraService.sensorOrientation,
-        isFrontCamera: _cameraService.isFrontCamera,
-        deviceOrientation: _cameraService.controller?.value.deviceOrientation ?? DeviceOrientation.portraitUp,
-      );
-
-      // تحديث الحالة
-      if (result != null && result.isValid) {
-        _latestLandmarks = result;
-        _isRealHand = true;
-      } else {
-        // No Hand ➔ Zero Recognition مسح فوري
-        _clearHand();
-      }
 
       sw.stop();
       _lastProcessingTimeMs = sw.elapsedMicroseconds / 1000.0;
       _processedFramesCount++;
       _lastProcessedFrameTime = DateTime.now();
 
-      // تحديث الـ UI عند تغيير الحالة أو عند وجود يد
-      if (wasRealHandBefore != _isRealHand || _isRealHand) {
+      // تحديث واجهة التشخيص بشكل دوري
+      if (_processedFramesCount % 3 == 0) {
         notifyListeners();
       }
     } catch (e) {

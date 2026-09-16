@@ -167,6 +167,7 @@ class IsharaDiagnosticService extends ChangeNotifier {
     required int rotation,
     int previewRotation = 0,
     int detectorInputRotation = 0,
+    bool isFrontCamera = true,
     int framesReceived = 0,
     DiagnosticStageStatus imageConversionStatus = DiagnosticStageStatus.pass,
     String? imageConversionError,
@@ -186,9 +187,17 @@ class IsharaDiagnosticService extends ChangeNotifier {
         frameAgeMs < 1500 &&
         width > 0 &&
         height > 0;
-    final String? errCode = !isStreaming || frameAgeMs >= 1500
-        ? DiagnosticErrorCodes.e001CameraNoFrames
-        : (rotation % 90 != 0 ? DiagnosticErrorCodes.e002CameraRotation : null);
+
+    String? errCode;
+    if (!isInitialized) {
+      errCode = DiagnosticErrorCodes.e100Camera;
+    } else if (!isStreaming || frameAgeMs >= 1500) {
+      errCode = DiagnosticErrorCodes.e101CameraFrame;
+    } else if (format.isEmpty || format == 'UNKNOWN') {
+      errCode = DiagnosticErrorCodes.e102ImageFormat;
+    } else if (rotation % 90 != 0 || previewRotation % 90 != 0) {
+      errCode = DiagnosticErrorCodes.e103Rotation;
+    }
 
     _camera = CameraDiagnosticData(
       status: ok ? DiagnosticStageStatus.pass : DiagnosticStageStatus.fail,
@@ -202,6 +211,7 @@ class IsharaDiagnosticService extends ChangeNotifier {
       rotation: rotation,
       previewRotation: previewRotation,
       detectorInputRotation: detectorInputRotation,
+      isFrontCamera: isFrontCamera,
       framesReceived: framesReceived,
       imageConversionStatus: imageConversionStatus,
       imageConversionError: imageConversionError,
@@ -223,7 +233,7 @@ class IsharaDiagnosticService extends ChangeNotifier {
       _recordEvent(
         'CAMERA',
         DiagnosticStageStatus.fail,
-        'No frames arriving or stream halted ($frameAgeMs ms)',
+        'Camera issue: ${errCode ?? "Unstable stream"} ($frameAgeMs ms)',
         errorCode: errCode,
       );
     }
