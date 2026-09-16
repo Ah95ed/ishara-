@@ -1,11 +1,13 @@
 import 'dart:collection';
+
 import 'package:flutter/foundation.dart';
 import 'package:ishara/services/diagnostics/diagnostic_models.dart';
 
 /// IsharaDiagnosticService
 /// محرك التشخيص الشامل لجميع مراحل الـ Pipeline من الكاميرا وحتى ترجمة الإشارة.
 class IsharaDiagnosticService extends ChangeNotifier {
-  static final IsharaDiagnosticService _instance = IsharaDiagnosticService._internal();
+  static final IsharaDiagnosticService _instance =
+      IsharaDiagnosticService._internal();
   factory IsharaDiagnosticService() => _instance;
   IsharaDiagnosticService._internal();
 
@@ -18,7 +20,9 @@ class IsharaDiagnosticService extends ChangeNotifier {
 
   // سجل الأحداث الـ 50 الأخيرة (Circular Buffer)
   static const int maxEvents = 50;
-  final ListQueue<DiagnosticEvent> _eventHistory = ListQueue<DiagnosticEvent>(maxEvents);
+  final ListQueue<DiagnosticEvent> _eventHistory = ListQueue<DiagnosticEvent>(
+    maxEvents,
+  );
 
   List<DiagnosticEvent> get eventHistory => List.unmodifiable(_eventHistory);
 
@@ -29,36 +33,80 @@ class IsharaDiagnosticService extends ChangeNotifier {
   FaceHeadLipsDiagnosticData _faceHead = const FaceHeadLipsDiagnosticData();
   Keypoints86DiagnosticData _keypoints = const Keypoints86DiagnosticData();
   PointGroupDiagnosticData _pointGroups = const PointGroupDiagnosticData();
-  PreprocessingDiagnosticData _preprocessing = const PreprocessingDiagnosticData();
+  PreprocessingDiagnosticData _preprocessing =
+      const PreprocessingDiagnosticData();
   TemporalBufferDiagnosticData _buffer = const TemporalBufferDiagnosticData();
   ModelInputDiagnosticData _modelInput = const ModelInputDiagnosticData();
   TfliteLoadDiagnosticData _tfliteLoad = const TfliteLoadDiagnosticData();
   InferenceDiagnosticData _inference = const InferenceDiagnosticData();
   ModelOutputDiagnosticData _modelOutput = const ModelOutputDiagnosticData();
-  RawTopClassesDiagnosticData _rawTopClasses = const RawTopClassesDiagnosticData();
+  RawTopClassesDiagnosticData _rawTopClasses =
+      const RawTopClassesDiagnosticData();
   CtcDiagnosticData _ctc = const CtcDiagnosticData();
   VocabularyDiagnosticData _vocabulary = const VocabularyDiagnosticData();
   FinalOutputDiagnosticData _finalOutput = const FinalOutputDiagnosticData();
 
   // Getters
-  CameraDiagnosticData get camera => _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.camera : _camera;
-  PersonDiagnosticData get person => _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.person : _person;
-  HandsDiagnosticData get hands => _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.hands : _hands;
-  FaceHeadLipsDiagnosticData get faceHead => _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.faceHead : _faceHead;
-  Keypoints86DiagnosticData get keypoints => _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.keypoints : _keypoints;
-  PointGroupDiagnosticData get pointGroups => _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.pointGroups : _pointGroups;
-  PreprocessingDiagnosticData get preprocessing => _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.preprocessing : _preprocessing;
-  TemporalBufferDiagnosticData get buffer => _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.buffer : _buffer;
-  ModelInputDiagnosticData get modelInput => _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.modelInput : _modelInput;
-  TfliteLoadDiagnosticData get tfliteLoad => _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.tfliteLoad : _tfliteLoad;
-  InferenceDiagnosticData get inference => _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.inference : _inference;
-  ModelOutputDiagnosticData get modelOutput => _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.modelOutput : _modelOutput;
-  RawTopClassesDiagnosticData get rawTopClasses => _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.rawTopClasses : _rawTopClasses;
-  CtcDiagnosticData get ctc => _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.ctc : _ctc;
-  VocabularyDiagnosticData get vocabulary => _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.vocabulary : _vocabulary;
-  FinalOutputDiagnosticData get finalOutput => _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.finalOutput : _finalOutput;
+  CameraDiagnosticData get camera =>
+      _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.camera : _camera;
+  PersonDiagnosticData get person =>
+      _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.person : _person;
+  HandsDiagnosticData get hands =>
+      _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.hands : _hands;
+  FaceHeadLipsDiagnosticData get faceHead =>
+      _isFrozen && _frozenSnapshot != null
+      ? _frozenSnapshot!.faceHead
+      : _faceHead;
+  Keypoints86DiagnosticData get keypoints =>
+      _isFrozen && _frozenSnapshot != null
+      ? _frozenSnapshot!.keypoints
+      : _keypoints;
+  PointGroupDiagnosticData get pointGroups =>
+      _isFrozen && _frozenSnapshot != null
+      ? _frozenSnapshot!.pointGroups
+      : _pointGroups;
+  PreprocessingDiagnosticData get preprocessing =>
+      _isFrozen && _frozenSnapshot != null
+      ? _frozenSnapshot!.preprocessing
+      : _preprocessing;
+  TemporalBufferDiagnosticData get buffer =>
+      _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.buffer : _buffer;
+  ModelInputDiagnosticData get modelInput =>
+      _isFrozen && _frozenSnapshot != null
+      ? _frozenSnapshot!.modelInput
+      : _modelInput;
+  TfliteLoadDiagnosticData get tfliteLoad =>
+      _isFrozen && _frozenSnapshot != null
+      ? _frozenSnapshot!.tfliteLoad
+      : _tfliteLoad;
+  InferenceDiagnosticData get inference => _isFrozen && _frozenSnapshot != null
+      ? _frozenSnapshot!.inference
+      : _inference;
+  ModelOutputDiagnosticData get modelOutput =>
+      _isFrozen && _frozenSnapshot != null
+      ? _frozenSnapshot!.modelOutput
+      : _modelOutput;
+  RawTopClassesDiagnosticData get rawTopClasses =>
+      _isFrozen && _frozenSnapshot != null
+      ? _frozenSnapshot!.rawTopClasses
+      : _rawTopClasses;
+  CtcDiagnosticData get ctc =>
+      _isFrozen && _frozenSnapshot != null ? _frozenSnapshot!.ctc : _ctc;
+  VocabularyDiagnosticData get vocabulary =>
+      _isFrozen && _frozenSnapshot != null
+      ? _frozenSnapshot!.vocabulary
+      : _vocabulary;
+  FinalOutputDiagnosticData get finalOutput =>
+      _isFrozen && _frozenSnapshot != null
+      ? _frozenSnapshot!.finalOutput
+      : _finalOutput;
 
-  void _recordEvent(String stage, DiagnosticStageStatus status, String message, {String? errorCode}) {
+  void _recordEvent(
+    String stage,
+    DiagnosticStageStatus status,
+    String message, {
+    String? errorCode,
+  }) {
     final event = DiagnosticEvent(
       timestamp: DateTime.now(),
       stage: stage,
@@ -120,7 +168,12 @@ class IsharaDiagnosticService extends ChangeNotifier {
   }) {
     if (_isFrozen) return;
 
-    final bool ok = isInitialized && isStreaming && frameAgeMs < 1000 && width > 0 && height > 0;
+    final bool ok =
+        isInitialized &&
+        isStreaming &&
+        frameAgeMs < 1000 &&
+        width > 0 &&
+        height > 0;
     final String? errCode = !isStreaming || frameAgeMs >= 1000
         ? DiagnosticErrorCodes.e001CameraNoFrames
         : (rotation % 90 != 0 ? DiagnosticErrorCodes.e002CameraRotation : null);
@@ -137,11 +190,18 @@ class IsharaDiagnosticService extends ChangeNotifier {
       rotation: rotation,
       lastFrameTime: DateTime.now(),
       errorCode: errCode,
-      errorMessage: errCode != null ? DiagnosticErrorCodes.getDescription(errCode) : null,
+      errorMessage: errCode != null
+          ? DiagnosticErrorCodes.getDescription(errCode)
+          : null,
     );
 
     if (!ok) {
-      _recordEvent('CAMERA', DiagnosticStageStatus.fail, 'No frames arriving or stream halted ($frameAgeMs ms)', errorCode: errCode);
+      _recordEvent(
+        'CAMERA',
+        DiagnosticStageStatus.fail,
+        'No frames arriving or stream halted ($frameAgeMs ms)',
+        errorCode: errCode,
+      );
       _skipDownstreamFrom(2);
     }
     notifyListeners();
@@ -165,8 +225,15 @@ class IsharaDiagnosticService extends ChangeNotifier {
       errCode = DiagnosticErrorCodes.e101PersonNotDetected;
       failureReason ??= (!posePresent
           ? 'NO_POSE_LANDMARKS'
-          : (!headPresent ? 'NO_HEAD_RESULT' : (!facePresent ? 'NO_FACE_RESULT' : 'FRAME_NOT_PROCESSED')));
-      _recordEvent('PERSON', DiagnosticStageStatus.fail, failureReason, errorCode: errCode);
+          : (!headPresent
+                ? 'NO_HEAD_RESULT'
+                : (!facePresent ? 'NO_FACE_RESULT' : 'FRAME_NOT_PROCESSED')));
+      _recordEvent(
+        'PERSON',
+        DiagnosticStageStatus.fail,
+        failureReason,
+        errorCode: errCode,
+      );
     }
 
     _person = PersonDiagnosticData(
@@ -197,10 +264,14 @@ class IsharaDiagnosticService extends ChangeNotifier {
     if (_isFrozen) return;
 
     final bool hasAnyHand = leftHandDetected || rightHandDetected;
-    final String? errCode = !hasAnyHand ? DiagnosticErrorCodes.e201NoHand : null;
+    final String? errCode = !hasAnyHand
+        ? DiagnosticErrorCodes.e201NoHand
+        : null;
 
     _hands = HandsDiagnosticData(
-      status: hasAnyHand ? DiagnosticStageStatus.pass : DiagnosticStageStatus.fail,
+      status: hasAnyHand
+          ? DiagnosticStageStatus.pass
+          : DiagnosticStageStatus.fail,
       leftHandDetected: leftHandDetected,
       leftHandLandmarks: leftHandLandmarks,
       leftHandConfidence: leftHandConfidence,
@@ -212,7 +283,12 @@ class IsharaDiagnosticService extends ChangeNotifier {
     );
 
     if (!hasAnyHand) {
-      _recordEvent('HANDS', DiagnosticStageStatus.fail, 'No hands detected (L: $leftHandLandmarks, R: $rightHandLandmarks)', errorCode: errCode);
+      _recordEvent(
+        'HANDS',
+        DiagnosticStageStatus.fail,
+        'No hands detected (L: $leftHandLandmarks, R: $rightHandLandmarks)',
+        errorCode: errCode,
+      );
       _skipDownstreamFrom(5);
     }
     notifyListeners();
@@ -300,12 +376,20 @@ class IsharaDiagnosticService extends ChangeNotifier {
       errMsg = 'Invalid coordinates detected (NaN: $nanCount, Inf: $infCount)';
     }
 
-    final sampleP0 = count > 0 && frame86[0].length >= 2 ? '(${frame86[0][0].toStringAsFixed(2)}, ${frame86[0][1].toStringAsFixed(2)})' : '(0,0)';
-    final sampleP1 = count > 1 && frame86[1].length >= 2 ? '(${frame86[1][0].toStringAsFixed(2)}, ${frame86[1][1].toStringAsFixed(2)})' : '(0,0)';
-    final sampleP2 = count > 2 && frame86[2].length >= 2 ? '(${frame86[2][0].toStringAsFixed(2)}, ${frame86[2][1].toStringAsFixed(2)})' : '(0,0)';
+    final sampleP0 = count > 0 && frame86[0].length >= 2
+        ? '(${frame86[0][0].toStringAsFixed(2)}, ${frame86[0][1].toStringAsFixed(2)})'
+        : '(0,0)';
+    final sampleP1 = count > 1 && frame86[1].length >= 2
+        ? '(${frame86[1][0].toStringAsFixed(2)}, ${frame86[1][1].toStringAsFixed(2)})'
+        : '(0,0)';
+    final sampleP2 = count > 2 && frame86[2].length >= 2
+        ? '(${frame86[2][0].toStringAsFixed(2)}, ${frame86[2][1].toStringAsFixed(2)})'
+        : '(0,0)';
 
     _keypoints = Keypoints86DiagnosticData(
-      status: overallOk ? DiagnosticStageStatus.pass : DiagnosticStageStatus.fail,
+      status: overallOk
+          ? DiagnosticStageStatus.pass
+          : DiagnosticStageStatus.fail,
       keypointCount: count,
       validKeypoints: validCount,
       missingKeypoints: count - validCount,
@@ -320,7 +404,12 @@ class IsharaDiagnosticService extends ChangeNotifier {
     );
 
     if (!overallOk) {
-      _recordEvent('86 KEYPOINTS', DiagnosticStageStatus.fail, errMsg ?? 'Keypoint error', errorCode: errCode);
+      _recordEvent(
+        '86 KEYPOINTS',
+        DiagnosticStageStatus.fail,
+        errMsg ?? 'Keypoint error',
+        errorCode: errCode,
+      );
       _skipDownstreamFrom(6);
     }
     notifyListeners();
@@ -337,7 +426,9 @@ class IsharaDiagnosticService extends ChangeNotifier {
 
     final bool hasHandPoints = (rightHandValid + leftHandValid) > 0;
     final bool ok = hasHandPoints && bodyValid >= 10;
-    final String? errCode = !ok ? DiagnosticErrorCodes.e303MappingFailure : null;
+    final String? errCode = !ok
+        ? DiagnosticErrorCodes.e303MappingFailure
+        : null;
 
     _pointGroups = PointGroupDiagnosticData(
       status: ok ? DiagnosticStageStatus.pass : DiagnosticStageStatus.fail,
@@ -350,7 +441,9 @@ class IsharaDiagnosticService extends ChangeNotifier {
       bodyValid: bodyValid,
       bodyTotal: 25,
       errorCode: errCode,
-      errorMessage: errCode != null ? 'Missing required group landmarks (Hands: ${rightHandValid + leftHandValid}/42, Body: $bodyValid/25)' : null,
+      errorMessage: errCode != null
+          ? 'Missing required group landmarks (Hands: ${rightHandValid + leftHandValid}/42, Body: $bodyValid/25)'
+          : null,
     );
 
     if (!ok) {
@@ -377,7 +470,9 @@ class IsharaDiagnosticService extends ChangeNotifier {
     final bool ok = !hasNan && !hasInfinity && !hasExtremeValues;
     final String? errCode = hasNan
         ? DiagnosticErrorCodes.e401PreprocessingNan
-        : (hasExtremeValues ? DiagnosticErrorCodes.e402PreprocessingRange : null);
+        : (hasExtremeValues
+              ? DiagnosticErrorCodes.e402PreprocessingRange
+              : null);
 
     _preprocessing = PreprocessingDiagnosticData(
       status: ok ? DiagnosticStageStatus.pass : DiagnosticStageStatus.fail,
@@ -392,11 +487,18 @@ class IsharaDiagnosticService extends ChangeNotifier {
       hasInfinity: hasInfinity,
       hasExtremeValues: hasExtremeValues,
       errorCode: errCode,
-      errorMessage: errCode != null ? DiagnosticErrorCodes.getDescription(errCode) : null,
+      errorMessage: errCode != null
+          ? DiagnosticErrorCodes.getDescription(errCode)
+          : null,
     );
 
     if (!ok) {
-      _recordEvent('PREPROCESSING', DiagnosticStageStatus.fail, 'Invalid normalized values [min: $normMin, max: $normMax]', errorCode: errCode);
+      _recordEvent(
+        'PREPROCESSING',
+        DiagnosticStageStatus.fail,
+        'Invalid normalized values [min: $normMin, max: $normMax]',
+        errorCode: errCode,
+      );
       _skipDownstreamFrom(8);
     }
     notifyListeners();
@@ -425,7 +527,9 @@ class IsharaDiagnosticService extends ChangeNotifier {
       handFrames: handFrames,
       headFrames: headFrames,
       errorCode: !full ? DiagnosticErrorCodes.e501BufferNotReady : null,
-      errorMessage: !full ? 'Buffer: $currentFrames / $requiredFrames frames' : null,
+      errorMessage: !full
+          ? 'Buffer: $currentFrames / $requiredFrames frames'
+          : null,
     );
     notifyListeners();
   }
@@ -442,7 +546,8 @@ class IsharaDiagnosticService extends ChangeNotifier {
   }) {
     if (_isFrozen) return;
 
-    final bool shapeOk = shape.length == 4 &&
+    final bool shapeOk =
+        shape.length == 4 &&
         shape[0] == 1 &&
         shape[1] == 128 &&
         shape[2] == 86 &&
@@ -451,7 +556,9 @@ class IsharaDiagnosticService extends ChangeNotifier {
     final bool valuesOk = nanCount == 0;
     final bool ok = shapeOk && valuesOk;
 
-    final String? errCode = !ok ? DiagnosticErrorCodes.e602ModelInputShape : null;
+    final String? errCode = !ok
+        ? DiagnosticErrorCodes.e602ModelInputShape
+        : null;
 
     _modelInput = ModelInputDiagnosticData(
       status: ok ? DiagnosticStageStatus.pass : DiagnosticStageStatus.fail,
@@ -464,11 +571,18 @@ class IsharaDiagnosticService extends ChangeNotifier {
       nanCount: nanCount,
       zeroPercentage: zeroPercentage,
       errorCode: errCode,
-      errorMessage: errCode != null ? 'Input shape mismatch: expected [1, 128, 86, 2], got $shape' : null,
+      errorMessage: errCode != null
+          ? 'Input shape mismatch: expected [1, 128, 86, 2], got $shape'
+          : null,
     );
 
     if (!ok) {
-      _recordEvent('MODEL INPUT', DiagnosticStageStatus.fail, 'Shape mismatch or NaN input', errorCode: errCode);
+      _recordEvent(
+        'MODEL INPUT',
+        DiagnosticStageStatus.fail,
+        'Shape mismatch or NaN input',
+        errorCode: errCode,
+      );
       _skipDownstreamFrom(11);
     }
     notifyListeners();
@@ -484,11 +598,14 @@ class IsharaDiagnosticService extends ChangeNotifier {
   }) {
     if (_isFrozen) return;
 
-    final bool shapesOk = isLoaded &&
+    final bool shapesOk =
+        isLoaded &&
         listEquals(inputShape, [1, 128, 86, 2]) &&
         listEquals(outputShape, [1, 29, 684]);
     final bool ok = fileFound && isLoaded && shapesOk;
-    final String? errCode = !ok ? DiagnosticErrorCodes.e601ModelNotLoaded : null;
+    final String? errCode = !ok
+        ? DiagnosticErrorCodes.e601ModelNotLoaded
+        : null;
 
     _tfliteLoad = TfliteLoadDiagnosticData(
       status: ok ? DiagnosticStageStatus.pass : DiagnosticStageStatus.fail,
@@ -499,13 +616,26 @@ class IsharaDiagnosticService extends ChangeNotifier {
       inputType: 'float32',
       outputType: 'float32',
       errorCode: errCode,
-      errorMessage: errorMessage ?? (!shapesOk ? 'Model tensor shapes mismatch' : null),
+      errorMessage:
+          errorMessage ??
+          (!shapesOk
+              ? 'Expected input: [1, 128, 86, 2], Actual input: ${inputShape ?? 'null'}\nExpected output: [1, 29, 684], Actual output: ${outputShape ?? 'null'}'
+              : null),
     );
 
     if (ok) {
-      _recordEvent('TFLITE LOAD', DiagnosticStageStatus.pass, 'Model loaded successfully [1,128,86,2] -> [1,29,684]');
+      _recordEvent(
+        'TFLITE LOAD',
+        DiagnosticStageStatus.pass,
+        'Model loaded successfully [1,128,86,2] -> [1,29,684]',
+      );
     } else {
-      _recordEvent('TFLITE LOAD', DiagnosticStageStatus.fail, errorMessage ?? 'TFLite load failed', errorCode: errCode);
+      _recordEvent(
+        'TFLITE LOAD',
+        DiagnosticStageStatus.fail,
+        errorMessage ?? 'TFLite load failed',
+        errorCode: errCode,
+      );
     }
     notifyListeners();
   }
@@ -526,7 +656,11 @@ class IsharaDiagnosticService extends ChangeNotifier {
       status: DiagnosticStageStatus.pass,
       inferenceTimeMs: elapsedMs,
     );
-    _recordEvent('INFERENCE', DiagnosticStageStatus.pass, 'Inference executed in ${elapsedMs}ms');
+    _recordEvent(
+      'INFERENCE',
+      DiagnosticStageStatus.pass,
+      'Inference executed in ${elapsedMs}ms',
+    );
     notifyListeners();
   }
 
@@ -544,7 +678,12 @@ class IsharaDiagnosticService extends ChangeNotifier {
       stackTraceSnippet: stackSnippet,
       errorCode: DiagnosticErrorCodes.e603InferenceFailed,
     );
-    _recordEvent('INFERENCE', DiagnosticStageStatus.fail, '$errType: $errMsg', errorCode: DiagnosticErrorCodes.e603InferenceFailed);
+    _recordEvent(
+      'INFERENCE',
+      DiagnosticStageStatus.fail,
+      '$errType: $errMsg',
+      errorCode: DiagnosticErrorCodes.e603InferenceFailed,
+    );
     _skipDownstreamFrom(12);
     notifyListeners();
   }
@@ -561,12 +700,16 @@ class IsharaDiagnosticService extends ChangeNotifier {
   }) {
     if (_isFrozen) return;
 
-    final bool shapeOk = outputShape.length == 3 &&
+    final bool shapeOk =
+        outputShape.length == 3 &&
         outputShape[0] == 1 &&
         outputShape[1] == 29 &&
         outputShape[2] == 684;
-    final bool ok = shapeOk && nanCount == 0 && infinityCount == 0 && !isAllZeros;
-    final String? errCode = !ok ? DiagnosticErrorCodes.e604InvalidModelOutput : null;
+    final bool ok =
+        shapeOk && nanCount == 0 && infinityCount == 0 && !isAllZeros;
+    final String? errCode = !ok
+        ? DiagnosticErrorCodes.e604InvalidModelOutput
+        : null;
 
     _modelOutput = ModelOutputDiagnosticData(
       status: ok ? DiagnosticStageStatus.pass : DiagnosticStageStatus.fail,
@@ -578,11 +721,18 @@ class IsharaDiagnosticService extends ChangeNotifier {
       max: max,
       mean: mean,
       errorCode: errCode,
-      errorMessage: errCode != null ? 'Output validation failed (NaN: $nanCount, AllZeros: $isAllZeros)' : null,
+      errorMessage: errCode != null
+          ? 'Output validation failed (NaN: $nanCount, AllZeros: $isAllZeros)'
+          : null,
     );
 
     if (!ok) {
-      _recordEvent('MODEL OUTPUT', DiagnosticStageStatus.fail, 'Output tensor invalid', errorCode: errCode);
+      _recordEvent(
+        'MODEL OUTPUT',
+        DiagnosticStageStatus.fail,
+        'Output tensor invalid',
+        errorCode: errCode,
+      );
       _skipDownstreamFrom(13);
     }
     notifyListeners();
@@ -597,7 +747,9 @@ class IsharaDiagnosticService extends ChangeNotifier {
     if (_isFrozen) return;
 
     _rawTopClasses = RawTopClassesDiagnosticData(
-      status: top5.isNotEmpty ? DiagnosticStageStatus.pass : DiagnosticStageStatus.waiting,
+      status: top5.isNotEmpty
+          ? DiagnosticStageStatus.pass
+          : DiagnosticStageStatus.waiting,
       top5: top5,
       blankRatio: blankRatio,
       isBlankDominant: isBlankDominant,
@@ -628,13 +780,24 @@ class IsharaDiagnosticService extends ChangeNotifier {
       decodedGlosses: decodedGlosses,
       averageConfidence: averageConfidence,
       errorCode: errCode,
-      errorMessage: errorMessage ?? (!ok ? 'Empty CTC sequence after blank removal' : null),
+      errorMessage:
+          errorMessage ??
+          (!ok ? 'Empty CTC sequence after blank removal' : null),
     );
 
     if (ok) {
-      _recordEvent('CTC', DiagnosticStageStatus.pass, 'Decoded: $decodedGlosses (IDs: $afterBlankRemovalIds)');
+      _recordEvent(
+        'CTC',
+        DiagnosticStageStatus.pass,
+        'Decoded: $decodedGlosses (IDs: $afterBlankRemovalIds)',
+      );
     } else {
-      _recordEvent('CTC', DiagnosticStageStatus.fail, errorMessage ?? 'CTC decoded sequence is empty', errorCode: errCode);
+      _recordEvent(
+        'CTC',
+        DiagnosticStageStatus.fail,
+        errorMessage ?? 'CTC decoded sequence is empty',
+        errorCode: errCode,
+      );
       _skipDownstreamFrom(15);
     }
     notifyListeners();
@@ -659,11 +822,18 @@ class IsharaDiagnosticService extends ChangeNotifier {
       verifiedMappings: verifiedMappings,
       invalidIds: invalidIds,
       errorCode: errCode,
-      errorMessage: errCode != null ? 'Vocabulary verification failed (Classes: $totalClasses, Invalid: $invalidIds)' : null,
+      errorMessage: errCode != null
+          ? 'Vocabulary verification failed (Classes: $totalClasses, Invalid: $invalidIds)'
+          : null,
     );
 
     if (!ok) {
-      _recordEvent('VOCABULARY', DiagnosticStageStatus.fail, 'Vocab mismatch', errorCode: errCode);
+      _recordEvent(
+        'VOCABULARY',
+        DiagnosticStageStatus.fail,
+        'Vocab mismatch',
+        errorCode: errCode,
+      );
       _skipDownstreamFrom(16);
     }
     notifyListeners();
@@ -681,7 +851,11 @@ class IsharaDiagnosticService extends ChangeNotifier {
 
     final bool ok = isConfirmed && finalGloss != null && finalGloss.isNotEmpty;
     _finalOutput = FinalOutputDiagnosticData(
-      status: ok ? DiagnosticStageStatus.pass : (decision == 'REJECTED' ? DiagnosticStageStatus.fail : DiagnosticStageStatus.waiting),
+      status: ok
+          ? DiagnosticStageStatus.pass
+          : (decision == 'REJECTED'
+                ? DiagnosticStageStatus.fail
+                : DiagnosticStageStatus.waiting),
       rawModelGloss: rawModelGloss,
       finalGloss: finalGloss,
       isConfirmed: isConfirmed,
@@ -699,19 +873,57 @@ class IsharaDiagnosticService extends ChangeNotifier {
 
   // ──────────────────────────── SEQUENTIAL GATING ────────────────────────────
   void _skipDownstreamFrom(int stageIndex) {
-    if (stageIndex <= 2) _person = const PersonDiagnosticData(status: DiagnosticStageStatus.skipped);
-    if (stageIndex <= 3) _hands = const HandsDiagnosticData(status: DiagnosticStageStatus.skipped);
-    if (stageIndex <= 4) _faceHead = const FaceHeadLipsDiagnosticData(status: DiagnosticStageStatus.skipped);
-    if (stageIndex <= 5) _keypoints = const Keypoints86DiagnosticData(status: DiagnosticStageStatus.skipped);
-    if (stageIndex <= 6) _pointGroups = const PointGroupDiagnosticData(status: DiagnosticStageStatus.skipped);
-    if (stageIndex <= 7) _preprocessing = const PreprocessingDiagnosticData(status: DiagnosticStageStatus.skipped);
-    if (stageIndex <= 8) _buffer = const TemporalBufferDiagnosticData(status: DiagnosticStageStatus.skipped);
-    if (stageIndex <= 9) _modelInput = const ModelInputDiagnosticData(status: DiagnosticStageStatus.skipped);
-    if (stageIndex <= 11) _inference = const InferenceDiagnosticData(status: DiagnosticStageStatus.skipped);
-    if (stageIndex <= 12) _modelOutput = const ModelOutputDiagnosticData(status: DiagnosticStageStatus.skipped);
-    if (stageIndex <= 13) _rawTopClasses = const RawTopClassesDiagnosticData(status: DiagnosticStageStatus.skipped);
-    if (stageIndex <= 14) _ctc = const CtcDiagnosticData(status: DiagnosticStageStatus.skipped);
-    if (stageIndex <= 15) _vocabulary = const VocabularyDiagnosticData(status: DiagnosticStageStatus.skipped);
-    if (stageIndex <= 16) _finalOutput = const FinalOutputDiagnosticData(status: DiagnosticStageStatus.skipped);
+    if (stageIndex <= 2)
+      _person = const PersonDiagnosticData(
+        status: DiagnosticStageStatus.skipped,
+      );
+    if (stageIndex <= 3)
+      _hands = const HandsDiagnosticData(status: DiagnosticStageStatus.skipped);
+    if (stageIndex <= 4)
+      _faceHead = const FaceHeadLipsDiagnosticData(
+        status: DiagnosticStageStatus.skipped,
+      );
+    if (stageIndex <= 5)
+      _keypoints = const Keypoints86DiagnosticData(
+        status: DiagnosticStageStatus.skipped,
+      );
+    if (stageIndex <= 6)
+      _pointGroups = const PointGroupDiagnosticData(
+        status: DiagnosticStageStatus.skipped,
+      );
+    if (stageIndex <= 7)
+      _preprocessing = const PreprocessingDiagnosticData(
+        status: DiagnosticStageStatus.skipped,
+      );
+    if (stageIndex <= 8)
+      _buffer = const TemporalBufferDiagnosticData(
+        status: DiagnosticStageStatus.skipped,
+      );
+    if (stageIndex <= 9)
+      _modelInput = const ModelInputDiagnosticData(
+        status: DiagnosticStageStatus.skipped,
+      );
+    if (stageIndex <= 11)
+      _inference = const InferenceDiagnosticData(
+        status: DiagnosticStageStatus.skipped,
+      );
+    if (stageIndex <= 12)
+      _modelOutput = const ModelOutputDiagnosticData(
+        status: DiagnosticStageStatus.skipped,
+      );
+    if (stageIndex <= 13)
+      _rawTopClasses = const RawTopClassesDiagnosticData(
+        status: DiagnosticStageStatus.skipped,
+      );
+    if (stageIndex <= 14)
+      _ctc = const CtcDiagnosticData(status: DiagnosticStageStatus.skipped);
+    if (stageIndex <= 15)
+      _vocabulary = const VocabularyDiagnosticData(
+        status: DiagnosticStageStatus.skipped,
+      );
+    if (stageIndex <= 16)
+      _finalOutput = const FinalOutputDiagnosticData(
+        status: DiagnosticStageStatus.skipped,
+      );
   }
 }

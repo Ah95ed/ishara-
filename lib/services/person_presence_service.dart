@@ -63,7 +63,9 @@ class PersonPresenceService {
       _detector = null;
       _isInitialized = false;
       if (kDebugMode) {
-        debugPrint('[PersonPresenceService] ⚠️ Failed to initialize PoseDetector: $e');
+        debugPrint(
+          '[PersonPresenceService] ⚠️ Failed to initialize PoseDetector: $e',
+        );
       }
     }
   }
@@ -75,16 +77,26 @@ class PersonPresenceService {
     DeviceOrientation deviceOrientation = DeviceOrientation.portraitUp,
   }) async {
     if (!_isInitialized || _detector == null) {
+      debugPrint(
+        '[PersonPresenceService] E102_PERSON_DETECTOR_NOT_CALLED: detector not initialized',
+      );
       return PersonPresenceResult.empty;
     }
 
     try {
+      debugPrint(
+        '[PersonPresenceService] CAMERA FORMAT: ${image.format.group.name} | SIZE: ${image.width}x${image.height} | SENSOR ORIENTATION: ${sensorOrientation ?? 'null'} | DEVICE ORIENTATION: $deviceOrientation',
+      );
+
       final inputImage = _createInputImage(
         image,
         sensorOrientation: sensorOrientation,
         deviceOrientation: deviceOrientation,
       );
       if (inputImage == null) {
+        debugPrint(
+          '[PersonPresenceService] E104_CAMERA_IMAGE_CONVERSION: image conversion failed',
+        );
         return PersonPresenceResult.empty;
       }
 

@@ -1,4 +1,5 @@
 import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:ishara/services/tflite/ishara_vocab_service.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
@@ -16,7 +17,8 @@ class RawClassEntry {
   });
 
   @override
-  String toString() => 'ID: $classId | Gloss: $gloss | Score: ${(score * 100).toStringAsFixed(1)}%';
+  String toString() =>
+      'ID: $classId | Gloss: $gloss | Score: ${(score * 100).toStringAsFixed(1)}%';
 }
 
 /// نتيجة تحليل الاستنتاج الخام
@@ -89,17 +91,18 @@ class IsharaRecognitionService {
       debugPrint('Output type: $_outputType');
       debugPrint('==================================================');
 
-      if (!_areShapesEqual(_inputShape, expectedInputShape)) {
-        final errorMsg =
-            'CRITICAL ERROR: Input shape mismatch! Expected: $expectedInputShape, Got: $_inputShape';
-        debugPrint('[IsharaRecognitionService] ❌ $errorMsg');
-        _releaseModel();
-        throw StateError(errorMsg);
-      }
+      final inputOk = listEquals(_inputShape, expectedInputShape);
+      final outputOk = listEquals(_outputShape, expectedOutputShape);
 
-      if (!_areShapesEqual(_outputShape, expectedOutputShape)) {
-        final errorMsg =
-            'CRITICAL ERROR: Output shape mismatch! Expected: $expectedOutputShape, Got: $_outputShape';
+      if (!inputOk || !outputOk) {
+        final buffer = StringBuffer();
+        buffer.writeln('TFLite model validation failed.');
+        buffer.writeln('Expected input: ${expectedInputShape.toList()}');
+        buffer.writeln('Actual input: ${_inputShape?.toList() ?? 'null'}');
+        buffer.writeln('Expected output: ${expectedOutputShape.toList()}');
+        buffer.writeln('Actual output: ${_outputShape?.toList() ?? 'null'}');
+
+        final errorMsg = buffer.toString();
         debugPrint('[IsharaRecognitionService] ❌ $errorMsg');
         _releaseModel();
         throw StateError(errorMsg);
@@ -110,7 +113,9 @@ class IsharaRecognitionService {
     } catch (e, stack) {
       _isModelLoaded = false;
       _releaseModel();
-      debugPrint('[IsharaRecognitionService] ❌ Failed to load model: $e\n$stack');
+      debugPrint(
+        '[IsharaRecognitionService] ❌ Failed to load model: $e\n$stack',
+      );
       return false;
     }
   }
@@ -119,7 +124,9 @@ class IsharaRecognitionService {
   /// وإعادة مصفوفة الـ Logits بأبعاد [29, 684]
   List<List<double>>? runInference(List<List<List<double>>> frames128x86x2) {
     if (!_isModelLoaded || _interpreter == null) {
-      debugPrint('[IsharaRecognitionService] Cannot run inference: Model not loaded');
+      debugPrint(
+        '[IsharaRecognitionService] Cannot run inference: Model not loaded',
+      );
       return null;
     }
 
@@ -134,10 +141,7 @@ class IsharaRecognitionService {
       final input = [frames128x86x2];
       final output = List.generate(
         1,
-        (_) => List.generate(
-          29,
-          (_) => List<double>.filled(684, 0.0),
-        ),
+        (_) => List.generate(29, (_) => List<double>.filled(684, 0.0)),
       );
 
       _interpreter!.run(input, output);
@@ -220,10 +224,16 @@ class IsharaRecognitionService {
       debugPrint('────────── [RAW TOP-10 TFLITE INFERENCE CLASSES] ──────────');
       for (int i = 0; i < top10.length; i++) {
         final e = top10[i];
-        debugPrint('  Top ${i + 1}: ID ${e.classId} | Gloss: "${e.gloss}" | Score: ${(e.score * 100).toStringAsFixed(2)}%');
+        debugPrint(
+          '  Top ${i + 1}: ID ${e.classId} | Gloss: "${e.gloss}" | Score: ${(e.score * 100).toStringAsFixed(2)}%',
+        );
       }
-      debugPrint('  Blank Ratio: ${(blankRatio * 100).toStringAsFixed(1)}% | Sequence Conf: ${(sequenceConfidence * 100).toStringAsFixed(1)}% | Top1/Top2 Margin: ${(top1Margin * 100).toStringAsFixed(2)}%');
-      debugPrint('─────────────────────────────────────────────────────────────');
+      debugPrint(
+        '  Blank Ratio: ${(blankRatio * 100).toStringAsFixed(1)}% | Sequence Conf: ${(sequenceConfidence * 100).toStringAsFixed(1)}% | Top1/Top2 Margin: ${(top1Margin * 100).toStringAsFixed(2)}%',
+      );
+      debugPrint(
+        '─────────────────────────────────────────────────────────────',
+      );
     }
 
     return ModelInferenceAnalysis(
@@ -272,14 +282,6 @@ class IsharaRecognitionService {
       probs[i] = exps[i] / sumExp;
     }
     return probs;
-  }
-
-  static bool _areShapesEqual(List<int>? a, List<int> b) {
-    if (a == null || a.length != b.length) return false;
-    for (int i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
   }
 
   void _releaseModel() {

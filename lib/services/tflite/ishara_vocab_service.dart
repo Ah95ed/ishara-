@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -30,7 +31,9 @@ class IsharaVocabService {
 
       final dynamic decoded = jsonDecode(jsonString);
       if (decoded is! Map) {
-        throw const FormatException('Invalid JSON format in vocab file: root is not a Map');
+        throw const FormatException(
+          'Invalid JSON format in vocab file: root is not a Map',
+        );
       }
 
       _idToGloss.clear();
@@ -50,7 +53,22 @@ class IsharaVocabService {
         throw StateError(errorMsg);
       }
 
-      // التحقق من Blank token
+      final invalidIds = <int>[];
+      for (int id = 1; id < expectedVocabSize; id++) {
+        if (!_idToGloss.containsKey(id)) {
+          invalidIds.add(id);
+        }
+      }
+
+      if (invalidIds.isNotEmpty) {
+        final errorMsg =
+            'CRITICAL ERROR: Vocabulary has missing gloss IDs in 1..${expectedVocabSize - 1}. Missing: $invalidIds';
+        debugPrint('[IsharaVocabService] ❌ $errorMsg');
+        _isLoaded = false;
+        throw StateError(errorMsg);
+      }
+
+      // التحقق من Blank token (ID 0 محجوز لـ CTC blank وليس Gloss فعلي)
       if (_idToGloss[blankId] != blankToken) {
         debugPrint(
           '[IsharaVocabService] ⚠️ Warning: ID 0 is "${_idToGloss[blankId]}" (expected "$blankToken")',
@@ -58,7 +76,9 @@ class IsharaVocabService {
       }
 
       _isLoaded = true;
-      debugPrint('[IsharaVocabService] ✅ Vocab loaded successfully: ${_idToGloss.length} classes');
+      debugPrint(
+        '[IsharaVocabService] ✅ Vocab loaded successfully: ${_idToGloss.length} classes',
+      );
       return true;
     } catch (e, stack) {
       _isLoaded = false;

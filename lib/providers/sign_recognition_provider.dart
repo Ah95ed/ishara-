@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -40,6 +41,12 @@ class SignRecognitionProvider extends ChangeNotifier {
   bool _isModelLoaded = false;
   bool _isRecognizing = false;
   bool _isInferenceRunning = false;
+  int cameraFramesReceived = 0;
+  int personDetectorCalls = 0;
+  int personDetectorResults = 0;
+  int personDetectorErrors = 0;
+  DateTime? lastPersonDetectorCall;
+  DateTime? lastPersonDetectorResult;
   String? _currentGloss;
   final List<String> _currentGlossSequence = [];
   double? _confidence;
@@ -63,14 +70,14 @@ class SignRecognitionProvider extends ChangeNotifier {
     PersonPresenceDetector? presenceDetector,
     TemporalMotionAnalyzer? motionAnalyzer,
     SignStateMachine? stateMachine,
-  })  : _modelService = modelService ?? IsharaRecognitionService(),
-        _vocabService = vocabService ?? IsharaVocabService(),
-        _preprocessor = preprocessor ?? PosePreprocessor(),
-        _poseExtractor = poseExtractor ?? PoseExtractorService(),
-        _presenceValidator = presenceValidator ?? SignPresenceValidator(),
-        _presenceDetector = presenceDetector ?? PersonPresenceDetector(),
-        _motionAnalyzer = motionAnalyzer ?? TemporalMotionAnalyzer(),
-        _stateMachine = stateMachine ?? SignStateMachine() {
+  }) : _modelService = modelService ?? IsharaRecognitionService(),
+       _vocabService = vocabService ?? IsharaVocabService(),
+       _preprocessor = preprocessor ?? PosePreprocessor(),
+       _poseExtractor = poseExtractor ?? PoseExtractorService(),
+       _presenceValidator = presenceValidator ?? SignPresenceValidator(),
+       _presenceDetector = presenceDetector ?? PersonPresenceDetector(),
+       _motionAnalyzer = motionAnalyzer ?? TemporalMotionAnalyzer(),
+       _stateMachine = stateMachine ?? SignStateMachine() {
     _ctcDecoder = CtcGreedyDecoder(vocabService: _vocabService);
     _stateMachine.addListener(_onStateMachineChanged);
   }
@@ -79,7 +86,8 @@ class SignRecognitionProvider extends ChangeNotifier {
   bool get isModelLoaded => _isModelLoaded;
   bool get isRecognizing => _isRecognizing;
   String? get currentGloss => _currentGloss;
-  List<String> get currentGlossSequence => List.unmodifiable(_currentGlossSequence);
+  List<String> get currentGlossSequence =>
+      List.unmodifiable(_currentGlossSequence);
   double? get confidence => _confidence;
   String? get error => _error;
   SignTemporalState get state => _stateMachine.state;
@@ -115,7 +123,7 @@ class SignRecognitionProvider extends ChangeNotifier {
       final vocabOk = await _vocabService.loadVocab();
       final verifiedMappings = <String>[];
       final invalidIds = <int>[];
-      for (int i = 0; i < min(10, _vocabService.vocabSize); i++) {
+      for (int i = 1; i < min(10, _vocabService.vocabSize); i++) {
         final g = _vocabService.getGloss(i);
         if (g != null) {
           verifiedMappings.add('ID $i -> "$g"');
@@ -130,11 +138,7 @@ class SignRecognitionProvider extends ChangeNotifier {
         invalidIds: invalidIds,
       );
 
-      if (!vocabOk) {
-        _error = 'فشل تحميل قاموس المفردات (ishara_vocab.json)';
-        notifyListeners();
-        return false;
-      }
+      await _poseExtractor.initialize();
 
       final modelOk = await _modelService.loadModel();
       IsharaDiagnosticService().recordTfliteLoad(
@@ -144,18 +148,12 @@ class SignRecognitionProvider extends ChangeNotifier {
         outputShape: _modelService.outputShape,
       );
 
-      if (!modelOk) {
-        _error = 'فشل تحميل نموذج لغة الإشارة (ishara_model.tflite)';
-        notifyListeners();
-        return false;
-      }
-
-      await _poseExtractor.initialize();
-
-      _isModelLoaded = true;
-      _error = null;
+      _isModelLoaded = modelOk;
+      _error = modelOk
+          ? null
+          : 'فشل تحميل نموذج لغة الإشارة (ishara_model.tflite)';
       notifyListeners();
-      return true;
+      return modelOk && vocabOk;
     } catch (e) {
       _isModelLoaded = false;
       _error = e.toString();
@@ -171,11 +169,6 @@ class SignRecognitionProvider extends ChangeNotifier {
 
   /// بدء عملية التعرف المستمر
   void startRecognition() {
-    if (!_isModelLoaded) {
-      _error = 'النموذج غير جاهز للبدء';
-      notifyListeners();
-      return;
-    }
     _isRecognizing = true;
     _presenceDetector.reset();
     _stateMachine.reset();
@@ -209,9 +202,18 @@ class SignRecognitionProvider extends ChangeNotifier {
     bool isFrontCamera = false,
     DeviceOrientation deviceOrientation = DeviceOrientation.portraitUp,
   }) async {
-    if (!_isModelLoaded || !_isRecognizing) return;
+    if (!_isRecognizing) return;
+
+    cameraFramesReceived++;
 
     try {
+      if (!_poseExtractor.isInitialized) {
+        await _poseExtractor.initialize();
+      }
+
+      personDetectorCalls++;
+      lastPersonDetectorCall = DateTime.now();
+
       // 1. استخراج معالم الأيدي والوضعيات من الكاميرا مع دوران الإطار والمرآة
       final extracted = await _poseExtractor.extractFromCameraImage(
         image,
@@ -219,6 +221,9 @@ class SignRecognitionProvider extends ChangeNotifier {
         isFrontCamera: isFrontCamera,
         deviceOrientation: deviceOrientation,
       );
+
+      personDetectorResults++;
+      lastPersonDetectorResult = DateTime.now();
 
       // 2. تحديث كاشف حضور الشخص واليد المركزي مع الاستقرار الزمني (Temporal Persistence)
       final presenceState = _presenceDetector.updatePresence(
@@ -245,6 +250,13 @@ class SignRecognitionProvider extends ChangeNotifier {
         personPresentDirect: presenceState.personPresent,
       );
       _lastPresence = presence;
+
+      if (!_isModelLoaded ||
+          !_vocabService.isLoaded ||
+          !presence.personPresent) {
+        notifyListeners();
+        return;
+      }
 
       // 4. تطبيق المعالجة المسبقة والتطبيع الصارم المطابق لـ datasetv2.py
       final frame86x2 = _preprocessor.processFrame(
@@ -295,8 +307,11 @@ class SignRecognitionProvider extends ChangeNotifier {
           _analyzeCompletedSegment(segment);
         }
       }
-    } catch (e) {
-      debugPrint('[SignRecognitionProvider] Frame process error: $e');
+    } catch (e, stack) {
+      personDetectorErrors++;
+      debugPrint('PERSON DETECTOR ERROR: $e');
+      debugPrint(stack.toString());
+      notifyListeners();
     }
   }
 
@@ -326,7 +341,8 @@ class SignRecognitionProvider extends ChangeNotifier {
           finalGloss: null,
           isConfirmed: false,
           decision: 'REJECTED',
-          rejectionReason: 'فشل تشغيل نموذج الاستنتاج (TFLite Inference Failed)',
+          rejectionReason:
+              'فشل تشغيل نموذج الاستنتاج (TFLite Inference Failed)',
         );
         _rejectAndReset('فشل تشغيل نموذج الاستنتاج');
         return;
@@ -347,7 +363,14 @@ class SignRecognitionProvider extends ChangeNotifier {
       final top5Items = <TopClassItem>[];
       for (int i = 0; i < min(5, analysisA.top10Classes.length); i++) {
         final c = analysisA.top10Classes[i];
-        top5Items.add(TopClassItem(rank: i + 1, classId: c.classId, gloss: c.gloss, score: c.score));
+        top5Items.add(
+          TopClassItem(
+            rank: i + 1,
+            classId: c.classId,
+            gloss: c.gloss,
+            score: c.score,
+          ),
+        );
       }
       IsharaDiagnosticService().recordRawTopClasses(
         top5: top5Items,
@@ -422,9 +445,12 @@ class SignRecognitionProvider extends ChangeNotifier {
           finalGloss: null,
           isConfirmed: false,
           decision: 'REJECTED',
-          rejectionReason: 'ثقة استنتاج ضعيفة: ${(confA * 100).toStringAsFixed(1)}%',
+          rejectionReason:
+              'ثقة استنتاج ضعيفة: ${(confA * 100).toStringAsFixed(1)}%',
         );
-        _rejectAndReset('ثقة استنتاج ضعيفة: ${(confA * 100).toStringAsFixed(1)}%');
+        _rejectAndReset(
+          'ثقة استنتاج ضعيفة: ${(confA * 100).toStringAsFixed(1)}%',
+        );
         return;
       }
 
@@ -443,19 +469,27 @@ class SignRecognitionProvider extends ChangeNotifier {
       }
 
       // التحقق من توافق Candidate A و Candidate B
-      final bool isTemporallyConsistent = candidateB != null &&
-          (candidateA == candidateB || candidateA.contains(candidateB) || candidateB.contains(candidateA));
+      final bool isTemporallyConsistent =
+          candidateB != null &&
+          (candidateA == candidateB ||
+              candidateA.contains(candidateB) ||
+              candidateB.contains(candidateA));
 
-      if (!isTemporallyConsistent && candidateB != null && candidateB.isNotEmpty) {
+      if (!isTemporallyConsistent &&
+          candidateB != null &&
+          candidateB.isNotEmpty) {
         // تعارض حاد بين النافذتين ➔ UNCERTAIN
         IsharaDiagnosticService().recordFinalOutput(
           rawModelGloss: candidateA,
           finalGloss: null,
           isConfirmed: false,
           decision: 'REJECTED',
-          rejectionReason: 'تعارض زمني غير مستقر بين النافذتين (A: $candidateA, B: $candidateB)',
+          rejectionReason:
+              'تعارض زمني غير مستقر بين النافذتين (A: $candidateA, B: $candidateB)',
         );
-        _rejectAndReset('تعارض زمني غير مستقر بين النافذتين (A: $candidateA, B: $candidateB)');
+        _rejectAndReset(
+          'تعارض زمني غير مستقر بين النافذتين (A: $candidateA, B: $candidateB)',
+        );
         return;
       }
 
@@ -473,7 +507,9 @@ class SignRecognitionProvider extends ChangeNotifier {
       }
 
       // ──────────────── اعتماد الإشارة (CONFIRMED) ────────────────
-      final double finalConfidence = confB > 0 ? (confA * 0.6 + confB * 0.4) : confA;
+      final double finalConfidence = confB > 0
+          ? (confA * 0.6 + confB * 0.4)
+          : confA;
       IsharaDiagnosticService().recordFinalOutput(
         rawModelGloss: candidateA,
         finalGloss: candidateA,
@@ -586,6 +622,7 @@ class SignRecognitionProvider extends ChangeNotifier {
         }
       }
     }
+
     checkPoints(extracted.rightHand);
     checkPoints(extracted.leftHand);
     checkPoints(extracted.lips);
@@ -595,7 +632,9 @@ class SignRecognitionProvider extends ChangeNotifier {
     if (rawMinY == double.infinity) rawMinY = 0.0;
     if (rawMaxY == double.negativeInfinity) rawMaxY = 0.0;
 
-    double normMin = double.infinity, normMax = double.negativeInfinity, normSum = 0.0;
+    double normMin = double.infinity,
+        normMax = double.negativeInfinity,
+        normSum = 0.0;
     bool hasNan = false, hasInf = false, hasExtreme = false;
     int totalNorm = 0;
     for (final p in frame86x2) {
@@ -632,14 +671,20 @@ class SignRecognitionProvider extends ChangeNotifier {
       requiredFrames: 128,
       validFrames: _stateMachine.activeFramesCount,
       invalidFrames: 0,
-      personFrames: presenceState.personPresent ? _stateMachine.activeFramesCount : 0,
-      handFrames: (extracted.rightHand != null || extracted.leftHand != null) ? _stateMachine.activeFramesCount : 0,
+      personFrames: presenceState.personPresent
+          ? _stateMachine.activeFramesCount
+          : 0,
+      handFrames: (extracted.rightHand != null || extracted.leftHand != null)
+          ? _stateMachine.activeFramesCount
+          : 0,
       headFrames: extracted.headPresent ? _stateMachine.activeFramesCount : 0,
     );
   }
 
   void _recordModelInputDiagnostics(List<List<List<double>>> windowA) {
-    double inMin = double.infinity, inMax = double.negativeInfinity, inSum = 0.0;
+    double inMin = double.infinity,
+        inMax = double.negativeInfinity,
+        inSum = 0.0;
     int inNan = 0, inZeros = 0, inCount = 0;
     for (final frame in windowA) {
       for (final pt in frame) {
@@ -671,7 +716,9 @@ class SignRecognitionProvider extends ChangeNotifier {
 
   void _recordModelOutputDiagnostics(List<List<double>> logitsA) {
     int outNan = 0, outInf = 0, outZeros = 0, outCount = 0;
-    double outMin = double.infinity, outMax = double.negativeInfinity, outSum = 0.0;
+    double outMin = double.infinity,
+        outMax = double.negativeInfinity,
+        outSum = 0.0;
     for (final step in logitsA) {
       for (final v in step) {
         outCount++;
@@ -688,7 +735,11 @@ class SignRecognitionProvider extends ChangeNotifier {
     if (outMax == double.negativeInfinity) outMax = 0.0;
 
     IsharaDiagnosticService().recordModelOutput(
-      outputShape: [1, logitsA.length, logitsA.isNotEmpty ? logitsA[0].length : 0],
+      outputShape: [
+        1,
+        logitsA.length,
+        logitsA.isNotEmpty ? logitsA[0].length : 0,
+      ],
       nanCount: outNan,
       infinityCount: outInf,
       isAllZeros: outZeros == outCount,
