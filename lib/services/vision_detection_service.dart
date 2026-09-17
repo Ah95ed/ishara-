@@ -8,6 +8,9 @@ import 'package:flutter/services.dart';
 import 'package:google_mlkit_face_mesh_detection/google_mlkit_face_mesh_detection.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:hand_detection/hand_detection.dart' as hd;
+import 'package:ishara/keypoints/ishara_keypoint_mapper.dart';
+import 'package:ishara/keypoints/keypoint_normalizer.dart';
+import 'package:ishara/keypoints/keypoint_validator.dart';
 import 'package:ishara/models/body_parts_detection_state.dart';
 
 /// موازن الحالة المعتمد على عدد الإطارات (Frame-based Stabilizer)
@@ -120,6 +123,10 @@ class VisionDetectionService {
   List<HandLandmarkPoint>? _prevRightHandPoints;
   List<HandLandmarkPoint>? _prevLeftHandPoints;
   int _freezeCounter = 0;
+
+  // إطارات معالم الموديل الـ 86 للتحقق وحساب الحركة
+  KeypointFrame? _prevRawKeypointFrame;
+  KeypointFrame? _prevNormalizedKeypointFrame;
 
   bool get isInitialized => _isInitialized;
 
@@ -521,12 +528,29 @@ class VisionDetectionService {
       _prevLeftHandPoints = leftHandPoints;
       _detectorResultCount++;
 
-      final int actualTotalModelPoints = actualRightHandPoints +
-          actualLeftHandPoints +
-          actualModelFaceLipPoints +
-          actualModelBodyHeadPoints;
+      // ── 5. استخراج معالم الموديل الـ 86 وتدقيقها وتطبيعها ──
+      final rawKeypointFrame = IsharaKeypointMapper.extractRawModelKeypoints(
+        rightHand: rightHandPoints,
+        leftHand: leftHandPoints,
+        lipsPoints: lipPoints,
+        posePoints: posePoints,
+        timestamp: now,
+      );
 
-      // ── 5. كشف الشخص وموازنات الاستقرار ──
+      final normalizedKeypointFrame = KeypointNormalizer.normalizeForModel(
+        rawKeypointFrame,
+        previousFrame: _prevNormalizedKeypointFrame,
+      );
+
+      final keypointValidation = KeypointValidator.validate(
+        rawKeypointFrame,
+        previousFrame: _prevRawKeypointFrame,
+      );
+
+      _prevRawKeypointFrame = rawKeypointFrame;
+      _prevNormalizedKeypointFrame = normalizedKeypointFrame;
+
+      // ── 6. كشف الشخص وموازنات الاستقرار ──
       final bool rawPerson = (actualUpperBodyPoints > 0) ||
           (actualHeadPoints >= 2) ||
           (actualFacePoints >= 30);
@@ -569,7 +593,7 @@ class VisionDetectionService {
         ),
         modelFaceLipPoints: actualModelFaceLipPoints,
         modelBodyHeadPoints: actualModelBodyHeadPoints,
-        totalModelPoints: actualTotalModelPoints,
+        totalModelPoints: keypointValidation.validCount,
         fps: _currentFps,
         rightHandPoints: rightHandPoints,
         leftHandPoints: leftHandPoints,
@@ -592,6 +616,9 @@ class VisionDetectionService {
         landmarkAgeMs: landmarkAgeMs,
         motionDelta: motionDelta,
         isPossiblyFrozen: isPossiblyFrozen,
+        rawKeypointFrame: rawKeypointFrame,
+        normalizedKeypointFrame: normalizedKeypointFrame,
+        keypointValidation: keypointValidation,
       );
     } catch (e) {
       debugPrint('[VisionDetectionService] Error processing frame: $e');
@@ -708,6 +735,8 @@ class VisionDetectionService {
     _rightHandStabilizer.reset();
     _prevRightHandPoints = null;
     _prevLeftHandPoints = null;
+    _prevRawKeypointFrame = null;
+    _prevNormalizedKeypointFrame = null;
     _freezeCounter = 0;
   }
 

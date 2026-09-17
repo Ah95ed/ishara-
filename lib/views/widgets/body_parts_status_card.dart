@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:ishara/keypoints/ishara_keypoint_mapper.dart';
 import 'package:ishara/models/body_parts_detection_state.dart';
 import 'package:ishara/providers/vision_detection_provider.dart';
 import 'package:provider/provider.dart';
@@ -126,28 +127,297 @@ class BodyPartsStatusCard extends StatelessWidget {
                 const Divider(height: 1),
                 const SizedBox(height: 14),
 
-                // ── ملخص نقاط الموديل (Model Point Mapping) ──
-                _buildModelSummaryRow(
-                  title: 'Face/Lips Model Points',
-                  actual: state.modelFaceLipPoints,
-                  required: 19,
-                ),
-                const SizedBox(height: 6),
-
-                _buildModelSummaryRow(
-                  title: 'Body/Head Model Points',
-                  actual: state.modelBodyHeadPoints,
-                  required: 25,
-                ),
-                const SizedBox(height: 10),
-
-                // ── إجمالي نقاط الموديل الـ 86 ──
-                _buildTotalPointsCard(state),
+                // ── ملخص نقاط الموديل 1 (Model 1 [86, 2] Verification) ──
+                _buildModelVerificationSection(context, state),
               ],
             ),
           ),
         );
       },
+    );
+  }
+
+  /// قسم التحقق الكامل من نقاط الموديل الـ 86
+  Widget _buildModelVerificationSection(BuildContext context, VisionLandmarksState state) {
+    final val = state.keypointValidation;
+    final int validCount = val?.validCount ?? state.totalModelPoints;
+    final bool isFull = validCount >= 86;
+    final int movingCount = val?.movingPointsCount ?? 0;
+    final int nanInfCount = (val?.nanCount ?? 0) + (val?.infCount ?? 0);
+    final bool coordsValid = !(val?.hasInvalidNumbers ?? false);
+    final bool mappingVerified = val?.isTrainingMappingVerified ?? true;
+
+    final int rhPts = val?.validRightHandPoints ?? (state.rightHandPoints?.length ?? 0);
+    final int lhPts = val?.validLeftHandPoints ?? (state.leftHandPoints?.length ?? 0);
+    final int lipsPts = val?.validFaceLipPoints ?? state.modelFaceLipPoints;
+    final int bodyPts = val?.validBodyHeadPoints ?? state.modelBodyHeadPoints;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // عنوان قسم الموديل
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'نقاط التدريب للموديل [86, 2]',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.blueGrey,
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: mappingVerified
+                    ? Colors.green.withValues(alpha: 0.12)
+                    : Colors.red.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                mappingVerified ? 'TRAINING ORDER VERIFIED ✅' : 'NOT VERIFIED ❌',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: mappingVerified ? Colors.green.shade800 : Colors.red.shade800,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+
+        // 1. Right Hand Model Points
+        _buildModelPartRow(
+          title: 'Right Hand model pts',
+          actual: rhPts,
+          required: 21,
+          isDetected: state.rightHand.detected,
+        ),
+        const SizedBox(height: 6),
+
+        // 2. Left Hand Model Points
+        _buildModelPartRow(
+          title: 'Left Hand model pts',
+          actual: lhPts,
+          required: 21,
+          isDetected: state.leftHand.detected,
+        ),
+        const SizedBox(height: 6),
+
+        // 3. Face/Lips Model Points
+        _buildModelPartRow(
+          title: 'Face/Lips model pts',
+          actual: lipsPts,
+          required: 19,
+          isDetected: state.face.detected || state.lips.detected,
+        ),
+        const SizedBox(height: 6),
+
+        // 4. Body/Head Model Points
+        _buildModelPartRow(
+          title: 'Body/Head model pts',
+          actual: bodyPts,
+          required: 25,
+          isDetected: state.head.detected || state.posePoints != null,
+        ),
+        const SizedBox(height: 12),
+
+        const Divider(height: 1),
+        const SizedBox(height: 12),
+
+        // ── بطاقة إجمالي نقاط الموديل الـ 86 ──
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: isFull
+                ? Colors.green.withValues(alpha: 0.1)
+                : Colors.red.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isFull ? Colors.green.shade400 : Colors.red.shade300,
+              width: 1.2,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'MODEL KEYPOINTS',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Row(
+                children: [
+                  Text(isFull ? '✅' : '❌', style: const TextStyle(fontSize: 14)),
+                  const SizedBox(width: 6),
+                  Text(
+                    '$validCount / 86',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                      color: isFull ? Colors.green.shade800 : Colors.red.shade800,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+
+        // صفوف الفحص الرياضي (Coordinates, NaN/Inf, Movement)
+        _buildMetricRow(
+          title: 'Coordinates',
+          value: coordsValid ? 'VALID ✅' : 'INVALID ❌',
+          color: coordsValid ? Colors.green.shade700 : Colors.red.shade700,
+        ),
+        const SizedBox(height: 4),
+
+        _buildMetricRow(
+          title: 'NaN / Inf',
+          value: '$nanInfCount ${nanInfCount == 0 ? "✅" : "❌"}',
+          color: nanInfCount == 0 ? Colors.green.shade700 : Colors.red.shade700,
+        ),
+        const SizedBox(height: 4),
+
+        _buildMetricRow(
+          title: 'Moving points',
+          value: '$movingCount / 86',
+          color: Colors.blueGrey.shade800,
+        ),
+        const SizedBox(height: 14),
+
+        // ── زر Diagnostic Dump: PRINT KEYPOINT MAP ──
+        ElevatedButton.icon(
+          onPressed: () {
+            if (state.rawKeypointFrame != null) {
+              IsharaKeypointMapper.dumpKeypointMap(state.rawKeypointFrame!);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'تمت طباعة خريطة الـ 86 نقطة في Console بنجاح (Valid: ${state.rawKeypointFrame!.validCount}/86)',
+                    style: const TextStyle(fontFamily: 'monospace'),
+                  ),
+                  duration: const Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('لا يوجد إطار معالم متوفر حالياً للطباعة'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
+          },
+          icon: const Icon(Icons.print_rounded, size: 18),
+          label: const Text(
+            'PRINT KEYPOINT MAP',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.0,
+            ),
+          ),
+          style: ElevatedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// سطر كل جزء في فحص الموديل
+  Widget _buildModelPartRow({
+    required String title,
+    required int actual,
+    required int required,
+    required bool isDetected,
+  }) {
+    final bool isFull = actual >= required && required > 0;
+    final String icon = isFull ? '✅' : '❌';
+    final Color textColor = isFull ? Colors.green.shade700 : Colors.red.shade700;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                isDetected ? '✅' : '❌',
+                style: const TextStyle(fontSize: 11),
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              Text(icon, style: const TextStyle(fontSize: 11)),
+              const SizedBox(width: 6),
+              Text(
+                '$actual / $required',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace',
+                  color: textColor,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// سطر مؤشر تشخيصي بسيط
+  Widget _buildMetricRow({
+    required String title,
+    required String value,
+    required Color color,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Colors.grey,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'monospace',
+              color: color,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -290,108 +560,6 @@ class BodyPartsStatusCard extends StatelessWidget {
                 ),
               ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// سطر ملخص نقاط أجزاء الموديل
-  Widget _buildModelSummaryRow({
-    required String title,
-    required int actual,
-    required int required,
-  }) {
-    final bool isFull = actual >= required && required > 0;
-    final bool isPartial = actual > 0 && actual < required;
-
-    final String icon = isFull ? '✅' : (isPartial ? '⚠️' : '❌');
-    final Color textColor = isFull
-        ? Colors.green.shade700
-        : (isPartial ? Colors.amber.shade800 : Colors.red.shade700);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 13,
-              color: Colors.grey,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          Row(
-            children: [
-              Text(icon, style: const TextStyle(fontSize: 12)),
-              const SizedBox(width: 6),
-              Text(
-                '$actual / $required',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'monospace',
-                  color: textColor,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// بطاقة إجمالي نقاط الموديل الـ 86
-  Widget _buildTotalPointsCard(VisionLandmarksState state) {
-    final bool isFull = state.totalModelPoints >= 86;
-    final String icon = isFull ? '✅' : '❌';
-    final Color cardColor = isFull
-        ? Colors.green.withValues(alpha: 0.1)
-        : Colors.red.withValues(alpha: 0.08);
-
-    final Color borderColor = isFull ? Colors.green.shade400 : Colors.red.shade300;
-    final Color textColor = isFull ? Colors.green.shade800 : Colors.red.shade800;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: borderColor, width: 1.2),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.analytics_outlined, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                'النقاط المطلوبة للموديل',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: textColor,
-                ),
-              ),
-            ],
-          ),
-          Row(
-            children: [
-              Text(icon, style: const TextStyle(fontSize: 16)),
-              const SizedBox(width: 6),
-              Text(
-                '${state.totalModelPoints} / 86',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'monospace',
-                  color: textColor,
-                ),
-              ),
-            ],
           ),
         ],
       ),

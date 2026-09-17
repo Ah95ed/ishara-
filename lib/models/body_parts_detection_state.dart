@@ -1,4 +1,6 @@
 import 'dart:ui';
+import 'package:ishara/keypoints/ishara_keypoint_mapper.dart';
+import 'package:ishara/keypoints/keypoint_validator.dart';
 
 /// حالات الكشف الثلاث
 enum DetectionStatus {
@@ -130,6 +132,11 @@ class VisionLandmarksState {
   final double motionDelta;
   final bool isPossiblyFrozen;
 
+  // ── طبقة معالم الموديل الـ 86 والتحقق منها (Model Keypoints Layer) ──
+  final KeypointFrame? rawKeypointFrame;
+  final KeypointFrame? normalizedKeypointFrame;
+  final KeypointValidationResult? keypointValidation;
+
   const VisionLandmarksState({
     required this.personDetected,
     required this.head,
@@ -162,6 +169,9 @@ class VisionLandmarksState {
     this.landmarkAgeMs = 0,
     this.motionDelta = 0.0,
     this.isPossiblyFrozen = false,
+    this.rawKeypointFrame,
+    this.normalizedKeypointFrame,
+    this.keypointValidation,
   });
 
   static const empty = VisionLandmarksState(
