@@ -1,21 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:ishara/constants/app_constants.dart';
 import 'package:ishara/controllers/camera_controller.dart';
-import 'package:ishara/controllers/gloss_controller.dart';
-import 'package:ishara/controllers/sign_controller.dart';
-import 'package:ishara/controllers/speech_controller.dart';
-import 'package:ishara/controllers/translation_controller.dart';
 import 'package:ishara/models/camera_state_model.dart';
-import 'package:ishara/providers/sign_recognition_provider.dart';
-import 'package:ishara/repositories/sign_repository.dart';
-import 'package:ishara/services/ai_service.dart';
+import 'package:ishara/providers/vision_detection_provider.dart';
 import 'package:ishara/services/camera_service.dart';
-import 'package:ishara/services/gloss_model_service.dart';
 import 'package:ishara/services/hand_detection_service.dart';
-import 'package:ishara/services/local_memory_service.dart';
-import 'package:ishara/services/local_model_service.dart';
-import 'package:ishara/services/ml_service.dart';
-import 'package:ishara/services/speech_service.dart';
+import 'package:ishara/services/vision_detection_service.dart';
 import 'package:ishara/theme/app_theme.dart';
 import 'package:ishara/views/home_view.dart';
 import 'package:provider/provider.dart';
@@ -33,77 +23,23 @@ class IsharaApp extends StatefulWidget {
 }
 
 class _IsharaAppState extends State<IsharaApp> {
-  late final SpeechService _speechService;
-  late final LocalMemoryService _localMemoryService;
-  late final MLService _mlService;
-  late final SignRepository _signRepository;
-  late final LocalModelService _localModelService;
-  late final AIService _aiService;
   late final CameraService _cameraService;
   late final HandDetectionService _handDetectionService;
-  late final GlossModelService _glossModelService;
-  late final GlossController _glossController;
-  late final SignProvider _signProvider;
-  late final SignRecognitionProvider _signRecognitionProvider;
+  late final VisionDetectionService _visionDetectionService;
+  late final VisionDetectionProvider _visionDetectionProvider;
 
   @override
   void initState() {
     super.initState();
-    _speechService = SpeechService();
-    _localMemoryService = LocalMemoryService();
-    _mlService = MLService();
-    _signRepository = SignRepository();
-    _localModelService = LocalModelService();
-    _aiService = GeminiAIService(apiKey: '');
     _cameraService = CameraService();
     _handDetectionService = HandDetectionService();
-    _glossModelService = GlossModelService();
-    _glossController = GlossController(_glossModelService);
-    _signProvider = SignProvider(_mlService, _speechService);
-    _signRecognitionProvider = SignRecognitionProvider();
-
-    // ربط مستشعر استقرار الإشارة بالـ GlossController (Dual-Path)
-    _signProvider.onStableSignDetected = (prediction) {
-      _glossController.onStableSign(prediction);
-    };
-    _signProvider.onStabilityStateChanged = (state, label, confidence) {
-      _glossController.updateStabilityState(state, label, confidence);
-    };
+    _visionDetectionService = VisionDetectionService();
+    _visionDetectionProvider = VisionDetectionProvider(_visionDetectionService);
 
     _initializeServices();
   }
 
   Future<void> _initializeServices() async {
-    try {
-      await _speechService.initialize();
-    } catch (e) {
-      debugPrint('[Main] ⚠️ SpeechService init error: $e');
-    }
-
-    try {
-      await _localMemoryService.initialize();
-    } catch (e) {
-      debugPrint('[Main] ⚠️ LocalMemoryService init error: $e');
-    }
-
-    try {
-      await _signRepository.loadLabels();
-    } catch (e) {
-      debugPrint('[Main] ⚠️ SignRepository loadLabels error: $e');
-    }
-
-    try {
-      await _mlService.loadModel(_signRepository.labels);
-    } catch (e) {
-      debugPrint('[Main] ⚠️ MLService loadModel error: $e');
-    }
-
-    try {
-      await _localModelService.initialize();
-    } catch (e) {
-      debugPrint('[Main] ⚠️ LocalModelService init error: $e');
-    }
-
     try {
       await _handDetectionService.initialize();
     } catch (e) {
@@ -111,27 +47,17 @@ class _IsharaAppState extends State<IsharaApp> {
     }
 
     try {
-      // تهيئة نموذج Ishara CSLR Transformer (ishara_model.tflite) ومفكك CTC
-      await _signRecognitionProvider.initialize();
-      _signRecognitionProvider.startRecognition();
+      await _visionDetectionProvider.initialize();
     } catch (e) {
-      debugPrint('[Main] ⚠️ SignRecognitionProvider init error: $e');
-    }
-
-    try {
-      // تهيئة نموذج Gemma3 GGUF في الخلفية دون تجميد الواجهة إذا توفر
-      _glossModelService.loadModel().catchError((_) => false);
-    } catch (e) {
-      debugPrint('[Main] ⚠️ GlossModelService init error: $e');
+      debugPrint('[Main] ⚠️ VisionDetectionProvider init error: $e');
     }
   }
 
   @override
   void dispose() {
-    _signRecognitionProvider.dispose();
-    _signProvider.dispose();
-    _glossController.dispose();
-    _glossModelService.dispose();
+    _visionDetectionProvider.dispose();
+    _handDetectionService.dispose();
+    _cameraService.dispose();
     super.dispose();
   }
 
@@ -143,22 +69,7 @@ class _IsharaAppState extends State<IsharaApp> {
         ChangeNotifierProvider(
           create: (_) => CameraProvider(_cameraService, _handDetectionService),
         ),
-        ChangeNotifierProvider.value(value: _localMemoryService),
-        ChangeNotifierProvider.value(value: _localModelService),
-        ChangeNotifierProvider(
-          create: (_) => TranslationController(
-            _localMemoryService,
-            _localModelService,
-            _aiService,
-            _speechService,
-          ),
-        ),
-        ChangeNotifierProvider.value(value: _signProvider),
-        ChangeNotifierProvider.value(value: _signRecognitionProvider),
-        ChangeNotifierProvider.value(value: _glossModelService),
-        ChangeNotifierProvider.value(value: _glossController),
-        ChangeNotifierProvider(create: (_) => SpeechProvider(_speechService)),
-        Provider.value(value: _signRepository),
+        ChangeNotifierProvider.value(value: _visionDetectionProvider),
       ],
       child: MaterialApp(
         title: AppConstants.appName,

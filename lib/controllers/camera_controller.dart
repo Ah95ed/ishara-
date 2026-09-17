@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:ishara/constants/app_constants.dart';
 import 'package:ishara/models/landmarks_model.dart';
 import 'package:ishara/services/camera_service.dart';
-import 'package:ishara/services/diagnostics/ishara_diagnostic_service.dart';
 import 'package:ishara/services/hand_detection_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -208,32 +207,13 @@ class CameraProvider extends ChangeNotifier {
     try {
       _calcFps();
 
-      final frameAge = _lastProcessedFrameTime != null
-          ? now.difference(_lastProcessedFrameTime!).inMilliseconds
-          : 0;
-
-      IsharaDiagnosticService().recordCamera(
-        isInitialized: _cameraService.isInitialized,
-        isStreaming: isStreaming,
-        fps: _currentFps,
-        frameAgeMs: frameAge,
-        width: image.width,
-        height: image.height,
-        format: image.format.group.name,
-        rotation: _cameraService.sensorOrientation ?? 0,
-        previewRotation: previewRotation,
-        detectorInputRotation: detectorRotation,
-        isFrontCamera: isFrontCamera,
-        framesReceived: _currentFrameSequence,
-      );
-
       sw.stop();
       _lastProcessingTimeMs = sw.elapsedMicroseconds / 1000.0;
       _processedFramesCount++;
       _lastProcessedFrameTime = DateTime.now();
 
-      // تحديث واجهة التشخيص بشكل دوري
-      if (_processedFramesCount % 3 == 0) {
+      // تحديث إحصائيات الكاميرا دورياً
+      if (_processedFramesCount % 5 == 0) {
         notifyListeners();
       }
     } catch (e) {
