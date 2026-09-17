@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -49,7 +50,8 @@ class PartStabilizer {
 
 /// VisionDetectionService
 /// الخدمة الموحدة المسؤولة عن معالجة إطارات الكاميرا
-/// واستخراج حالة وعدد النقاط الحقيقية لكل جزء ونقاط الموديل الـ 86.
+/// واستخراج حالة وعدد وإحداثيات النقاط الحقيقية (Raw Landmarks) لكل جزء
+/// ونقاط الموديل الـ 86 وتتبع الحركة (Motion Delta) لكشف التجمد.
 class VisionDetectionService {
   PoseDetector? _poseDetector;
   FaceMeshDetector? _faceMeshDetector;
@@ -106,13 +108,52 @@ class VisionDetectionService {
   final PartStabilizer _leftHandStabilizer = PartStabilizer(framesToActivate: 2, framesToDeactivate: 4);
   final PartStabilizer _rightHandStabilizer = PartStabilizer(framesToActivate: 2, framesToDeactivate: 4);
 
-  // إحصائيات الأداء ومعدل الفريمات
+  // إحصائيات الأداء وتتبع الإطارات
+  int _cameraFrameCount = 0;
+  int _detectorResultCount = 0;
   int _fpsFrameCounter = 0;
   DateTime? _lastFpsCalcTime;
   double _currentFps = 0.0;
   DateTime? _lastProcessedFrameTime;
 
+  // فحص تجمد الـ Landmarks وحساب Delta الحركة
+  List<HandLandmarkPoint>? _prevRightHandPoints;
+  List<HandLandmarkPoint>? _prevLeftHandPoints;
+  int _freezeCounter = 0;
+
   bool get isInitialized => _isInitialized;
+
+  /// تحويل إحداثيات ML Kit غير المدورة إلى إحداثيات Portrait مطبعة [0..1]
+  static NormalizedPoint normalizeMlKitPoint(
+    double px,
+    double py,
+    int w,
+    int h,
+    InputImageRotation rotation,
+  ) {
+    switch (rotation) {
+      case InputImageRotation.rotation90deg:
+        return NormalizedPoint(
+          ((h - py) / h).clamp(0.0, 1.0),
+          (px / w).clamp(0.0, 1.0),
+        );
+      case InputImageRotation.rotation270deg:
+        return NormalizedPoint(
+          (py / h).clamp(0.0, 1.0),
+          ((w - px) / w).clamp(0.0, 1.0),
+        );
+      case InputImageRotation.rotation180deg:
+        return NormalizedPoint(
+          ((w - px) / w).clamp(0.0, 1.0),
+          ((h - py) / h).clamp(0.0, 1.0),
+        );
+      case InputImageRotation.rotation0deg:
+        return NormalizedPoint(
+          (px / w).clamp(0.0, 1.0),
+          (py / h).clamp(0.0, 1.0),
+        );
+    }
+  }
 
   /// تهيئة المحركات الثلاثة دفعة واحدة
   Future<void> initialize() async {
@@ -150,7 +191,7 @@ class VisionDetectionService {
     }
   }
 
-  /// معالجة إطار الكاميرا وحساب النقاط الفعلية لكل جزء
+  /// معالجة إطار الكاميرا واستخراج النقاط اللحظية الفعلية
   Future<VisionLandmarksState?> processFrame(
     CameraImage image, {
     int? sensorOrientation,
@@ -158,6 +199,8 @@ class VisionDetectionService {
     DeviceOrientation deviceOrientation = DeviceOrientation.portraitUp,
   }) async {
     if (!_isInitialized || _isProcessing) return null;
+
+    _cameraFrameCount++;
 
     // خفض الفريمات لمنع تراكم الطوابير (15-18 FPS)
     final now = DateTime.now();
@@ -174,12 +217,16 @@ class VisionDetectionService {
     try {
       _calcFps();
 
-      // بناء InputImage المشترك لـ Pose و FaceMesh
-      final inputImage = _createInputImage(
-        image,
+      final inputRotation = _inputRotationFromCamera(
         sensorOrientation: sensorOrientation,
         isFrontCamera: isFrontCamera,
         deviceOrientation: deviceOrientation,
+      );
+
+      // بناء InputImage المشترك لـ Pose و FaceMesh
+      final inputImage = _createInputImage(
+        image,
+        inputRotation: inputRotation,
       );
 
       // حساب زاوية دوران اليدين
@@ -192,6 +239,15 @@ class VisionDetectionService {
               isFrontCamera: isFrontCamera,
               deviceOrientation: deviceOrientation,
             );
+
+      final Size detSize = hd.detectionSize(
+        width: image.width,
+        height: image.height,
+        rotation: handRotation,
+        maxDim: 640,
+      );
+      final double detW = detSize.width > 0 ? detSize.width : 640.0;
+      final double detH = detSize.height > 0 ? detSize.height : 480.0;
 
       // تشغيل الكواشف الثلاثة على نفس الإطار بالتوازي
       final List<dynamic> results = await Future.wait([
@@ -211,79 +267,185 @@ class VisionDetectionService {
       final List<FaceMesh> faceMeshes = results[1] as List<FaceMesh>;
       final List<hd.Hand> hands = results[2] as List<hd.Hand>;
 
-      // ── 1. حساب نقاط الرأس والجسم من Pose Detector ──
+      // ── 1. نقاط وضعية الجسم والرأس ──
       int actualHeadPoints = 0;
       int actualUpperBodyPoints = 0;
+      List<PoseLandmarkPoint>? posePoints;
 
       if (poses.isNotEmpty) {
         final pose = poses.first;
         final landmarks = pose.landmarks;
+        final List<PoseLandmarkPoint> extractedPose = [];
 
-        // فحص معالم الرأس الـ 11
         for (final type in headPoseTypes) {
           final lm = landmarks[type];
           if (lm != null && lm.likelihood >= 0.35) {
             actualHeadPoints++;
+            final np = normalizeMlKitPoint(lm.x, lm.y, image.width, image.height, inputRotation);
+            extractedPose.add(PoseLandmarkPoint(
+              index: type.index,
+              x: np.x,
+              y: np.y,
+              likelihood: lm.likelihood,
+            ));
           }
         }
 
-        // فحص معالم الجسم العلوي الـ 14
         for (final type in upperBodyPoseTypes) {
           final lm = landmarks[type];
           if (lm != null && lm.likelihood >= 0.35) {
             actualUpperBodyPoints++;
+            final np = normalizeMlKitPoint(lm.x, lm.y, image.width, image.height, inputRotation);
+            extractedPose.add(PoseLandmarkPoint(
+              index: type.index,
+              x: np.x,
+              y: np.y,
+              likelihood: lm.likelihood,
+            ));
           }
+        }
+
+        if (extractedPose.isNotEmpty) {
+          posePoints = extractedPose;
         }
       }
 
-      // إجمالي نقاط Body/Head للموديل (11 + 14 = 25)
       final int actualModelBodyHeadPoints = actualHeadPoints + actualUpperBodyPoints;
 
-      // ── 2. حساب نقاط الوجه والشفاه من Face Mesh ──
+      // ── 2. نقاط الوجه والشفاه الحقيقية ──
       int actualFacePoints = 0;
       int actualModelFaceLipPoints = 0;
+      List<NormalizedPoint>? lipPoints;
+      List<NormalizedPoint>? facePoints;
 
       if (faceMeshes.isNotEmpty) {
         final mesh = faceMeshes.first;
-        actualFacePoints = mesh.points.length; // 468 نقطة حقيقية
+        actualFacePoints = mesh.points.length;
 
-        // فحص معالم الشفاه الـ 19 من Mesh points
-        final Set<int> availableMeshIndices = mesh.points.map((p) => p.index).toSet();
+        final Map<int, FaceMeshPoint> pointMap = {
+          for (final p in mesh.points) p.index: p,
+        };
+
+        // استخراج نقاط الشفاه الـ 19
+        final List<NormalizedPoint> lips = [];
         for (final idx in lipMeshIndices) {
-          if (availableMeshIndices.contains(idx)) {
-            actualModelFaceLipPoints++;
+          final pt = pointMap[idx];
+          if (pt != null) {
+            lips.add(normalizeMlKitPoint(
+              pt.x,
+              pt.y,
+              image.width,
+              image.height,
+              inputRotation,
+            ));
           }
         }
+
+        if (lips.isNotEmpty) {
+          lipPoints = lips;
+          actualModelFaceLipPoints = lips.length;
+        }
+
+        // استخراج معالم الوجه لرسم الـ Mesh (أخذ عينات متناسقة)
+        final List<NormalizedPoint> facePts = [];
+        for (int i = 0; i < mesh.points.length; i += 3) {
+          final pt = mesh.points[i];
+          facePts.add(normalizeMlKitPoint(
+            pt.x,
+            pt.y,
+            image.width,
+            image.height,
+            inputRotation,
+          ));
+        }
+        facePoints = facePts;
       }
 
-      // ── 3. حساب نقاط اليد اليمنى واليسرى من MediaPipe Hands ──
+      // ── 3. نقاط اليدين الحقيقية الـ 21 مع Handedness ──
       int actualRightHandPoints = 0;
       int actualLeftHandPoints = 0;
+      List<HandLandmarkPoint>? rightHandPoints;
+      List<HandLandmarkPoint>? leftHandPoints;
 
       for (final hand in hands) {
-        if (hand.hasLandmarks) {
-          final int count = hand.landmarks.length.clamp(0, 21);
+        if (hand.hasLandmarks && hand.landmarks.length == 21) {
+          final List<HandLandmarkPoint> points = [];
+          for (int i = 0; i < 21; i++) {
+            final lm = hand.landmarks[i];
+            final nx = (lm.x / detW).clamp(0.0, 1.0);
+            final ny = (lm.y / detH).clamp(0.0, 1.0);
+            final nz = lm.z / detW;
+            points.add(HandLandmarkPoint(index: i, x: nx, y: ny, z: nz));
+          }
+
           if (hand.handedness == hd.Handedness.right) {
-            actualRightHandPoints = count;
+            rightHandPoints = points;
+            actualRightHandPoints = 21;
           } else if (hand.handedness == hd.Handedness.left) {
-            actualLeftHandPoints = count;
+            leftHandPoints = points;
+            actualLeftHandPoints = 21;
           }
         }
       }
 
-      // ── 4. حساب إجمالي نقاط الموديل الـ 86 الفعلية ──
-      // ممنوع جمع 21+21+19+25 ثابتاً — الحساب ناتج من النقاط الحقيقية المكتشفة فقط
+      // ── 4. حساب دلتا الحركة (Motion Delta) وفحص التجمد (Freeze Detection) ──
+      double motionDelta = 0.0;
+      int comparedJoints = 0;
+
+      if (rightHandPoints != null &&
+          _prevRightHandPoints != null &&
+          rightHandPoints.length == 21 &&
+          _prevRightHandPoints!.length == 21) {
+        for (int i = 0; i < 21; i++) {
+          final dx = rightHandPoints[i].x - _prevRightHandPoints![i].x;
+          final dy = rightHandPoints[i].y - _prevRightHandPoints![i].y;
+          motionDelta += math.sqrt(dx * dx + dy * dy);
+          comparedJoints++;
+        }
+      }
+
+      if (leftHandPoints != null &&
+          _prevLeftHandPoints != null &&
+          leftHandPoints.length == 21 &&
+          _prevLeftHandPoints!.length == 21) {
+        for (int i = 0; i < 21; i++) {
+          final dx = leftHandPoints[i].x - _prevLeftHandPoints![i].x;
+          final dy = leftHandPoints[i].y - _prevLeftHandPoints![i].y;
+          motionDelta += math.sqrt(dx * dx + dy * dy);
+          comparedJoints++;
+        }
+      }
+
+      bool isPossiblyFrozen = false;
+      final bool hasHandNow = rightHandPoints != null || leftHandPoints != null;
+      if (hasHandNow && comparedJoints > 0) {
+        if (motionDelta < 0.003) {
+          _freezeCounter++;
+          if (_freezeCounter >= 8) {
+            isPossiblyFrozen = true;
+          }
+        } else {
+          _freezeCounter = 0;
+        }
+      } else {
+        _freezeCounter = 0;
+      }
+
+      // تحديث المعالم السابقة — مسح فوري إذا اختفت اليد لمنع أي Cached Landmarks
+      _prevRightHandPoints = rightHandPoints;
+      _prevLeftHandPoints = leftHandPoints;
+      _detectorResultCount++;
+
       final int actualTotalModelPoints = actualRightHandPoints +
           actualLeftHandPoints +
           actualModelFaceLipPoints +
           actualModelBodyHeadPoints;
 
-      // ── 5. كشف الشخص (وجود جسم OR رأس OR وجه — دون اشتراط اليد إطلاقاً) ──
+      // ── 5. كشف الشخص (وجود جسم OR رأس OR وجه) ──
       final bool rawPerson = (actualUpperBodyPoints > 0) ||
           (actualHeadPoints >= 2) ||
           (actualFacePoints >= 30);
 
-      // تطبيق موازنات الاستقرار
       final bool personDetected = _personStabilizer.update(rawPerson);
       final bool headDetected = _headStabilizer.update(actualHeadPoints >= 2);
       final bool faceDetected = _faceStabilizer.update(actualFacePoints >= 30);
@@ -291,17 +453,15 @@ class VisionDetectionService {
       final bool rightHandDetected = _rightHandStabilizer.update(actualRightHandPoints >= 10);
       final bool leftHandDetected = _leftHandStabilizer.update(actualLeftHandPoints >= 10);
 
-      // ── طباعة الـ Console المطلوبة بحذافيرها ──
+      final int landmarkAgeMs = DateTime.now().difference(now).inMilliseconds;
+
+      // ── طباعة الـ Live Telemetry ──
       debugPrint('========================================');
-      debugPrint('PERSON=$personDetected');
-      debugPrint('HEAD=$actualHeadPoints/11');
-      debugPrint('FACE=$actualFacePoints/468');
-      debugPrint('LIPS=$actualModelFaceLipPoints/19');
-      debugPrint('RIGHT_HAND=$actualRightHandPoints/21');
-      debugPrint('LEFT_HAND=$actualLeftHandPoints/21');
-      debugPrint('MODEL_FACE_LIPS=$actualModelFaceLipPoints/19');
-      debugPrint('MODEL_BODY_HEAD=$actualModelBodyHeadPoints/25');
-      debugPrint('TOTAL=$actualTotalModelPoints/86');
+      debugPrint('CAMERA_FRAME=$_cameraFrameCount | RESULT_ID=$_detectorResultCount | AGE=${landmarkAgeMs}ms | FPS=${_currentFps.toStringAsFixed(1)}');
+      debugPrint('MOTION_DELTA=${motionDelta.toStringAsFixed(4)}${isPossiblyFrozen ? " ⚠️ LANDMARKS POSSIBLY FROZEN" : ""}');
+      debugPrint('PERSON=$personDetected | HEAD=$actualHeadPoints/11 | FACE=$actualFacePoints/468 | LIPS=$actualModelFaceLipPoints/19');
+      debugPrint('RIGHT_HAND=${rightHandPoints != null ? "21/21 (Live)" : "0/21"} | LEFT_HAND=${leftHandPoints != null ? "21/21 (Live)" : "0/21"}');
+      debugPrint('TOTAL_MODEL_POINTS=$actualTotalModelPoints/86');
       debugPrint('========================================');
 
       return VisionLandmarksState(
@@ -335,6 +495,17 @@ class VisionDetectionService {
         modelBodyHeadPoints: actualModelBodyHeadPoints,
         totalModelPoints: actualTotalModelPoints,
         fps: _currentFps,
+        rightHandPoints: rightHandPoints,
+        leftHandPoints: leftHandPoints,
+        lipPoints: lipPoints,
+        facePoints: facePoints,
+        posePoints: posePoints,
+        frameId: _cameraFrameCount,
+        detectorResultId: _detectorResultCount,
+        timestamp: now,
+        landmarkAgeMs: landmarkAgeMs,
+        motionDelta: motionDelta,
+        isPossiblyFrozen: isPossiblyFrozen,
       );
     } catch (e) {
       debugPrint('[VisionDetectionService] Error processing frame: $e');
@@ -362,17 +533,9 @@ class VisionDetectionService {
   /// تحويل إطار الكاميرا إلى InputImage لـ ML Kit
   InputImage? _createInputImage(
     CameraImage image, {
-    int? sensorOrientation,
-    bool isFrontCamera = true,
-    required DeviceOrientation deviceOrientation,
+    required InputImageRotation inputRotation,
   }) {
     if (image.planes.isEmpty) return null;
-
-    final inputRotation = _inputRotationFromCamera(
-      sensorOrientation: sensorOrientation,
-      isFrontCamera: isFrontCamera,
-      deviceOrientation: deviceOrientation,
-    );
 
     try {
       if (defaultTargetPlatform == TargetPlatform.android &&
@@ -477,6 +640,9 @@ class VisionDetectionService {
     _lipsStabilizer.reset();
     _leftHandStabilizer.reset();
     _rightHandStabilizer.reset();
+    _prevRightHandPoints = null;
+    _prevLeftHandPoints = null;
+    _freezeCounter = 0;
   }
 
   Future<void> dispose() async {

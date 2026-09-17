@@ -1,34 +1,26 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:ishara/models/landmarks_model.dart';
+import 'package:ishara/models/body_parts_detection_state.dart';
+import 'package:ishara/views/widgets/vision_landmarks_overlay_painter.dart';
 
-/// واجهة عرض الكاميرا النظيفة والمخصصة لترجمة لغة الإشارة
-/// تعرض بث الكاميرا بوضوح تام، مع إبراز الإشارة والحرف العربي المستقر فور التعرف عليه
+/// CameraPreviewWidget
+/// واجهة عرض الكاميرا مع Overlay المعالم الحقيقية اللحظية (Vision Landmarks)
+/// تدعم رسم الهيكل العظمي للأيدي (21 نقطة) وأرقامها، والشفاه (19 نقطة)، والوجه والجسم.
 class CameraPreviewWidget extends StatelessWidget {
   final CameraController? cameraController;
-  final HandLandmarks? landmarks;
-  final bool showLandmarks;
+  final VisionLandmarksState? visionState;
+  final bool showOverlay;
+  final bool showNumbers;
   final bool isStreaming;
-  final bool isHandDetected;
-  final String? activeSignLabel;
-  final bool isStable;
 
   const CameraPreviewWidget({
     super.key,
     this.cameraController,
-    this.landmarks,
-    this.showLandmarks = false, // معطل افتراضياً بناءً على طلب المستخدم لعدم تشتيت الرؤية
+    this.visionState,
+    this.showOverlay = true,
+    this.showNumbers = true,
     this.isStreaming = false,
-    this.isHandDetected = false,
-    this.activeSignLabel,
-    this.isStable = false,
   });
-
-  bool get _canShowSkeleton =>
-      showLandmarks &&
-      isHandDetected &&
-      landmarks != null &&
-      landmarks!.landmarks.length == 21;
 
   @override
   Widget build(BuildContext context) {
@@ -66,16 +58,21 @@ class CameraPreviewWidget extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // 1. طبقة بث الكاميرا النقي
+            // 1. طبقة بث الكاميرا المباشر
             CameraPreview(cameraController!),
 
-            // 2. رسم النقاط فقط إذا تم تمكين خيار المطور صراحة (معطلة افتراضياً)
-            if (_canShowSkeleton)
+            // 2. طبقة رسم المعالم الحقيقية اللحظية فوق الكاميرا
+            if (showOverlay && visionState != null)
               Positioned.fill(
                 child: CustomPaint(
-                  painter: HandLandmarksPainter(
-                    landmarks: landmarks!,
+                  painter: VisionLandmarksOverlayPainter(
+                    state: visionState!,
                     isFrontCamera: isFrontCamera,
+                    showNumbers: showNumbers,
+                    showHands: true,
+                    showFaceAndLips: true,
+                    showPose: true,
+                    showTelemetry: true,
                   ),
                 ),
               ),
@@ -84,58 +81,4 @@ class CameraPreviewWidget extends StatelessWidget {
       ),
     );
   }
-}
-
-/// رسام معالم اليد (اختياري فقط إذا تم تمكينه)
-class HandLandmarksPainter extends CustomPainter {
-  final HandLandmarks landmarks;
-  final bool isFrontCamera;
-
-  HandLandmarksPainter({
-    required this.landmarks,
-    this.isFrontCamera = false,
-  });
-
-  static const List<List<int>> connections = [
-    [0, 1], [1, 2], [2, 3], [3, 4],
-    [0, 5], [5, 6], [6, 7], [7, 8],
-    [5, 9], [9, 10], [10, 11], [11, 12],
-    [9, 13], [13, 14], [14, 15], [15, 16],
-    [13, 17], [17, 18], [18, 19], [19, 20],
-    [0, 17],
-  ];
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final lms = landmarks.landmarks;
-    if (lms.length < 21) return;
-
-    final linePaint = Paint()
-      ..color = Colors.greenAccent.withValues(alpha: 0.8)
-      ..strokeWidth = 2.5
-      ..style = PaintingStyle.stroke;
-
-    final pointPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-
-    for (final conn in connections) {
-      final p1 = lms[conn[0]];
-      final p2 = lms[conn[1]];
-      final x1 = isFrontCamera ? (1.0 - p1.x) * size.width : p1.x * size.width;
-      final y1 = p1.y * size.height;
-      final x2 = isFrontCamera ? (1.0 - p2.x) * size.width : p2.x * size.width;
-      final y2 = p2.y * size.height;
-      canvas.drawLine(Offset(x1, y1), Offset(x2, y2), linePaint);
-    }
-
-    for (final pt in lms) {
-      final x = isFrontCamera ? (1.0 - pt.x) * size.width : pt.x * size.width;
-      final y = pt.y * size.height;
-      canvas.drawCircle(Offset(x, y), 4.0, pointPaint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant HandLandmarksPainter oldDelegate) => true;
 }

@@ -21,6 +21,9 @@ class HomeView extends StatefulWidget {
 }
 
 class _HomeViewState extends State<HomeView> {
+  bool _showOverlay = true;
+  bool _showNumbers = true;
+
   @override
   void initState() {
     super.initState();
@@ -174,8 +177,8 @@ class _HomeViewState extends State<HomeView> {
   }
 
   Widget _buildCameraSection(BuildContext context) {
-    return Consumer<CameraProvider>(
-      builder: (context, cameraProvider, _) {
+    return Consumer2<CameraProvider, VisionDetectionProvider>(
+      builder: (context, cameraProvider, visionProvider, _) {
         if (cameraProvider.hasError) {
           return Container(
             padding: const EdgeInsets.all(24),
@@ -234,6 +237,9 @@ class _HomeViewState extends State<HomeView> {
                 CameraPreviewWidget(
                   key: ValueKey(cameraProvider.cameraController),
                   cameraController: cameraProvider.cameraController,
+                  visionState: visionProvider.state,
+                  showOverlay: _showOverlay,
+                  showNumbers: _showNumbers,
                   isStreaming: cameraProvider.isStreaming,
                 ),
                 Positioned(
@@ -241,12 +247,43 @@ class _HomeViewState extends State<HomeView> {
                   right: 12,
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.5),
+                      color: Colors.black.withValues(alpha: 0.55),
                       borderRadius: BorderRadius.circular(30),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        // زر تبديل إظهار الـ Overlay
+                        IconButton(
+                          onPressed: () {
+                            setState(() {
+                              _showOverlay = !_showOverlay;
+                            });
+                          },
+                          icon: Icon(
+                            _showOverlay
+                                ? Icons.layers_rounded
+                                : Icons.layers_clear_rounded,
+                            color: _showOverlay ? Colors.greenAccent : Colors.white70,
+                            size: 20,
+                          ),
+                          tooltip: _showOverlay ? 'إخفاء المعالم' : 'إظهار المعالم',
+                        ),
+                        // زر تبديل إظهار أرقام النقاط (0..20)
+                        IconButton(
+                          onPressed: () {
+                            setState(() {
+                              _showNumbers = !_showNumbers;
+                            });
+                          },
+                          icon: Icon(
+                            _showNumbers ? Icons.pin_drop : Icons.pin_drop_outlined,
+                            color: _showNumbers ? Colors.cyanAccent : Colors.white70,
+                            size: 20,
+                          ),
+                          tooltip: _showNumbers ? 'إخفاء أرقام النقاط' : 'إظهار أرقام النقاط (0..20)',
+                        ),
+                        // زر إيقاف / استئناف البث
                         IconButton(
                           onPressed: () {
                             cameraProvider.toggleStream(_onCameraImage);
@@ -256,12 +293,13 @@ class _HomeViewState extends State<HomeView> {
                                 ? Icons.pause_circle_filled
                                 : Icons.play_circle_filled,
                             color: Colors.white,
-                            size: 28,
+                            size: 24,
                           ),
                           tooltip: cameraProvider.isStreaming
                               ? 'إيقاف مؤقت'
                               : 'استئناف',
                         ),
+                        // زر تبديل الكاميرا (أمامية / خلفية)
                         IconButton(
                           onPressed: cameraProvider.isSwitchingCamera
                               ? null

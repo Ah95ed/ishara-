@@ -5,6 +5,44 @@ enum DetectionStatus {
   fail, // ❌ غير موجود
 }
 
+/// نقطة معلم يد فردية (0..20)
+class HandLandmarkPoint {
+  final int index;
+  final double x; // إحداثي طبيعي 0..1
+  final double y; // إحداثي طبيعي 0..1
+  final double z; // العمق النسبي
+
+  const HandLandmarkPoint({
+    required this.index,
+    required this.x,
+    required this.y,
+    this.z = 0.0,
+  });
+}
+
+/// نقطة ثنائية الأبعاد مطبعة 0..1
+class NormalizedPoint {
+  final double x;
+  final double y;
+
+  const NormalizedPoint(this.x, this.y);
+}
+
+/// نقطة معلم وضعية الجسم/الرأس
+class PoseLandmarkPoint {
+  final int index;
+  final double x;
+  final double y;
+  final double likelihood;
+
+  const PoseLandmarkPoint({
+    required this.index,
+    required this.x,
+    required this.y,
+    this.likelihood = 1.0,
+  });
+}
+
 /// حالة كل جزء مع عدد النقاط الفعلي والمطلوب
 class LandmarkPartStatus {
   final bool detected;
@@ -46,6 +84,7 @@ class LandmarkPartStatus {
 
 /// VisionLandmarksState
 /// نموذج الحالة الشامل الذي يحتوي على حالة ونقاط كل جزء والنقاط الـ 86 للموديل
+/// بالإضافة إلى إحداثيات المعالم الحية (Raw Live Landmarks) للرسم الفوري ومؤشرات التشخيص الحية.
 class VisionLandmarksState {
   final bool personDetected;
 
@@ -60,6 +99,21 @@ class VisionLandmarksState {
   final int totalModelPoints; // 0..86
   final double fps;
 
+  // ── إحداثيات المعالم الحقيقية اللحظية (Live Raw Landmarks) ──
+  final List<HandLandmarkPoint>? rightHandPoints; // 21 نقطة
+  final List<HandLandmarkPoint>? leftHandPoints;  // 21 نقطة
+  final List<NormalizedPoint>? lipPoints;        // 19 نقطة
+  final List<NormalizedPoint>? facePoints;       // نقاط شبكة الوجه
+  final List<PoseLandmarkPoint>? posePoints;     // نقاط وضعية الجسم والرأس
+
+  // ── تشخيص البث وحالة الحركة وتجمد البيانات ──
+  final int frameId;
+  final int detectorResultId;
+  final DateTime? timestamp;
+  final int landmarkAgeMs;
+  final double motionDelta;
+  final bool isPossiblyFrozen;
+
   const VisionLandmarksState({
     required this.personDetected,
     required this.head,
@@ -71,6 +125,17 @@ class VisionLandmarksState {
     required this.modelBodyHeadPoints,
     required this.totalModelPoints,
     this.fps = 0.0,
+    this.rightHandPoints,
+    this.leftHandPoints,
+    this.lipPoints,
+    this.facePoints,
+    this.posePoints,
+    this.frameId = 0,
+    this.detectorResultId = 0,
+    this.timestamp,
+    this.landmarkAgeMs = 0,
+    this.motionDelta = 0.0,
+    this.isPossiblyFrozen = false,
   });
 
   static const empty = VisionLandmarksState(
@@ -84,6 +149,17 @@ class VisionLandmarksState {
     modelBodyHeadPoints: 0,
     totalModelPoints: 0,
     fps: 0.0,
+    rightHandPoints: null,
+    leftHandPoints: null,
+    lipPoints: null,
+    facePoints: null,
+    posePoints: null,
+    frameId: 0,
+    detectorResultId: 0,
+    timestamp: null,
+    landmarkAgeMs: 0,
+    motionDelta: 0.0,
+    isPossiblyFrozen: false,
   );
 
   DetectionStatus get totalStatus {
@@ -101,9 +177,10 @@ class VisionLandmarksState {
       case DetectionStatus.pass:
         return '✅';
       case DetectionStatus.partial:
-        return '❌'; // كما طلب المستخدم: إذا ناقصة اعرض ❌ X/86
+        return '❌';
       case DetectionStatus.fail:
         return '❌';
     }
   }
 }
+
