@@ -11,6 +11,7 @@ import 'package:hand_detection/hand_detection.dart' as hd;
 import 'package:ishara/keypoints/ishara_keypoint_mapper.dart';
 import 'package:ishara/keypoints/keypoint_normalizer.dart';
 import 'package:ishara/keypoints/keypoint_validator.dart';
+import 'package:ishara/ml/preprocessing/ishara_normalizer.dart';
 import 'package:ishara/models/body_parts_detection_state.dart';
 
 /// موازن الحالة المعتمد على عدد الإطارات (Frame-based Stabilizer)
@@ -127,6 +128,10 @@ class VisionDetectionService {
   // إطارات معالم الموديل الـ 86 للتحقق وحساب الحركة
   KeypointFrame? _prevRawKeypointFrame;
   KeypointFrame? _prevNormalizedKeypointFrame;
+
+  // المحول الرياضي الصارم المطابق لـ datasetv2.py
+  final IsharaNormalizer _isharaNormalizer = IsharaNormalizer();
+  DateTime? _lastDiagnosticLogTime;
 
   bool get isInitialized => _isInitialized;
 
@@ -550,6 +555,46 @@ class VisionDetectionService {
       _prevRawKeypointFrame = rawKeypointFrame;
       _prevNormalizedKeypointFrame = normalizedKeypointFrame;
 
+      // ── التطبيع الصارم المستقل المطابق حرفياً لـ datasetv2.py ──
+      List<Point2D>? extractGroupPoints(int start, int count) {
+        final List<Point2D> pts = [];
+        for (int i = 0; i < count; i++) {
+          final kp = rawKeypointFrame.keypoints[start + i];
+          if (kp.isValid) {
+            pts.add(Point2D(kp.x!, kp.y!));
+          } else {
+            return null;
+          }
+        }
+        return pts;
+      }
+
+      final rawRh = extractGroupPoints(0, IsharaNormalizer.countRightHand);
+      final rawLh = extractGroupPoints(21, IsharaNormalizer.countLeftHand);
+      final rawLips = extractGroupPoints(42, IsharaNormalizer.countLips);
+      final rawBody = extractGroupPoints(61, IsharaNormalizer.countBody);
+
+      final fullNormalizedResult = _isharaNormalizer.processFrame(
+        rawRightHand: rawRh,
+        rawLeftHand: rawLh,
+        rawLips: rawLips,
+        rawBody: rawBody,
+        timestamp: now,
+      );
+
+      // Throttled Debug Logging (مرة كل 3 ثوانٍ في وضع Debug لمنع الـ Lag)
+      if (kDebugMode &&
+          (_lastDiagnosticLogTime == null ||
+              now.difference(_lastDiagnosticLogTime!).inSeconds >= 3)) {
+        _lastDiagnosticLogTime = now;
+        if (rawRh != null) {
+          fullNormalizedResult.rightHandDiag.logDiagnostic(
+            rawPoints: rawRh,
+            normPoints: fullNormalizedResult.rightHand,
+          );
+        }
+      }
+
       // ── 6. كشف الشخص وموازنات الاستقرار ──
       final bool rawPerson = (actualUpperBodyPoints > 0) ||
           (actualHeadPoints >= 2) ||
@@ -619,6 +664,7 @@ class VisionDetectionService {
         rawKeypointFrame: rawKeypointFrame,
         normalizedKeypointFrame: normalizedKeypointFrame,
         keypointValidation: keypointValidation,
+        fullNormalizedResult: fullNormalizedResult,
       );
     } catch (e) {
       debugPrint('[VisionDetectionService] Error processing frame: $e');
@@ -737,6 +783,8 @@ class VisionDetectionService {
     _prevLeftHandPoints = null;
     _prevRawKeypointFrame = null;
     _prevNormalizedKeypointFrame = null;
+    _isharaNormalizer.reset();
+    _lastDiagnosticLogTime = null;
     _freezeCounter = 0;
   }
 

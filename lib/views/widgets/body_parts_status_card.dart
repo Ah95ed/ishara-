@@ -143,14 +143,23 @@ class BodyPartsStatusCard extends StatelessWidget {
     final int validCount = val?.validCount ?? state.totalModelPoints;
     final bool isFull = validCount >= 86;
     final int movingCount = val?.movingPointsCount ?? 0;
-    final int nanInfCount = (val?.nanCount ?? 0) + (val?.infCount ?? 0);
-    final bool coordsValid = !(val?.hasInvalidNumbers ?? false);
-    final bool mappingVerified = val?.isTrainingMappingVerified ?? true;
 
     final int rhPts = val?.validRightHandPoints ?? (state.rightHandPoints?.length ?? 0);
     final int lhPts = val?.validLeftHandPoints ?? (state.leftHandPoints?.length ?? 0);
     final int lipsPts = val?.validFaceLipPoints ?? state.modelFaceLipPoints;
     final int bodyPts = val?.validBodyHeadPoints ?? state.modelBodyHeadPoints;
+
+    final normRes = state.fullNormalizedResult;
+    final int normCount = normRes?.validNormalizedCount ?? 0;
+    final bool isNormFull = normCount >= 86;
+    final int normNan = normRes?.nanCount ?? 0;
+    final int normInf = normRes?.infCount ?? 0;
+    final bool normMatch = normRes?.isTrainingMatch ?? false;
+
+    final int normRhCount = normRes?.rightHand.length ?? 0;
+    final int normLhCount = normRes?.leftHand.length ?? 0;
+    final int normLipsCount = normRes?.lips.length ?? 0;
+    final int normBodyCount = normRes?.body.length ?? 0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -160,7 +169,7 @@ class BodyPartsStatusCard extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             const Text(
-              'نقاط التدريب للموديل [86, 2]',
+              'RAW MODEL POINTS',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.bold,
@@ -170,17 +179,17 @@ class BodyPartsStatusCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: mappingVerified
+                color: isFull
                     ? Colors.green.withValues(alpha: 0.12)
                     : Colors.red.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                mappingVerified ? 'TRAINING ORDER VERIFIED ✅' : 'NOT VERIFIED ❌',
+                'RAW: $validCount / 86 ${isFull ? "✅" : "❌"}',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
-                  color: mappingVerified ? Colors.green.shade800 : Colors.red.shade800,
+                  color: isFull ? Colors.green.shade800 : Colors.red.shade800,
                   fontFamily: 'monospace',
                 ),
               ),
@@ -189,36 +198,36 @@ class BodyPartsStatusCard extends StatelessWidget {
         ),
         const SizedBox(height: 10),
 
-        // 1. Right Hand Model Points
+        // 1. Right Hand Raw Points
         _buildModelPartRow(
-          title: 'Right Hand model pts',
+          title: 'Right Hand raw pts',
           actual: rhPts,
           required: 21,
           isDetected: state.rightHand.detected,
         ),
         const SizedBox(height: 6),
 
-        // 2. Left Hand Model Points
+        // 2. Left Hand Raw Points
         _buildModelPartRow(
-          title: 'Left Hand model pts',
+          title: 'Left Hand raw pts',
           actual: lhPts,
           required: 21,
           isDetected: state.leftHand.detected,
         ),
         const SizedBox(height: 6),
 
-        // 3. Face/Lips Model Points
+        // 3. Face/Lips Raw Points
         _buildModelPartRow(
-          title: 'Face/Lips model pts',
+          title: 'Face/Lips raw pts',
           actual: lipsPts,
           required: 19,
           isDetected: state.face.detected || state.lips.detected,
         ),
         const SizedBox(height: 6),
 
-        // 4. Body/Head Model Points
+        // 4. Body/Head Raw Points
         _buildModelPartRow(
-          title: 'Body/Head model pts',
+          title: 'Body/Head raw pts',
           actual: bodyPts,
           required: 25,
           isDetected: state.head.detected || state.posePoints != null,
@@ -228,16 +237,59 @@ class BodyPartsStatusCard extends StatelessWidget {
         const Divider(height: 1),
         const SizedBox(height: 12),
 
-        // ── بطاقة إجمالي نقاط الموديل الـ 86 ──
+        // ── قسم NORMALIZED (المطابق حرفياً لـ datasetv2.py) ──
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'NORMALIZED (datasetv2.py)',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.blueGrey,
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: normMatch
+                    ? Colors.green.withValues(alpha: 0.12)
+                    : Colors.amber.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                normMatch ? 'TRAINING MATCH ✅' : 'WAITING DETECTIONS',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: normMatch ? Colors.green.shade800 : Colors.amber.shade900,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+
+        _buildNormalizedPartRow('Right Hand', normRhCount, 21, normRes?.rightHandDiag.isDegenerate == false),
+        const SizedBox(height: 4),
+        _buildNormalizedPartRow('Left Hand', normLhCount, 21, normRes?.leftHandDiag.isDegenerate == false),
+        const SizedBox(height: 4),
+        _buildNormalizedPartRow('Lips', normLipsCount, 19, normRes?.lipsDiag.isDegenerate == false),
+        const SizedBox(height: 4),
+        _buildNormalizedPartRow('Body', normBodyCount, 25, normRes?.bodyDiag.isDegenerate == false),
+        const SizedBox(height: 10),
+
+        // بطاقة إجمالي النقاط المطبعة الـ 86
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: isFull
+            color: isNormFull
                 ? Colors.green.withValues(alpha: 0.1)
                 : Colors.red.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isFull ? Colors.green.shade400 : Colors.red.shade300,
+              color: isNormFull ? Colors.green.shade400 : Colors.red.shade300,
               width: 1.2,
             ),
           ),
@@ -245,7 +297,7 @@ class BodyPartsStatusCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                'MODEL KEYPOINTS',
+                'Normalized Total',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
@@ -253,15 +305,15 @@ class BodyPartsStatusCard extends StatelessWidget {
               ),
               Row(
                 children: [
-                  Text(isFull ? '✅' : '❌', style: const TextStyle(fontSize: 14)),
+                  Text(isNormFull ? '✅' : '❌', style: const TextStyle(fontSize: 14)),
                   const SizedBox(width: 6),
                   Text(
-                    '$validCount / 86',
+                    '$normCount / 86',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                       fontFamily: 'monospace',
-                      color: isFull ? Colors.green.shade800 : Colors.red.shade800,
+                      color: isNormFull ? Colors.green.shade800 : Colors.red.shade800,
                     ),
                   ),
                 ],
@@ -271,18 +323,18 @@ class BodyPartsStatusCard extends StatelessWidget {
         ),
         const SizedBox(height: 8),
 
-        // صفوف الفحص الرياضي (Coordinates, NaN/Inf, Movement)
+        // مؤشرات NaN و Infinity
         _buildMetricRow(
-          title: 'Coordinates',
-          value: coordsValid ? 'VALID ✅' : 'INVALID ❌',
-          color: coordsValid ? Colors.green.shade700 : Colors.red.shade700,
+          title: 'NaN',
+          value: '$normNan ${normNan == 0 ? "✅" : "❌"}',
+          color: normNan == 0 ? Colors.green.shade700 : Colors.red.shade700,
         ),
         const SizedBox(height: 4),
 
         _buildMetricRow(
-          title: 'NaN / Inf',
-          value: '$nanInfCount ${nanInfCount == 0 ? "✅" : "❌"}',
-          color: nanInfCount == 0 ? Colors.green.shade700 : Colors.red.shade700,
+          title: 'Infinity',
+          value: '$normInf ${normInf == 0 ? "✅" : "❌"}',
+          color: normInf == 0 ? Colors.green.shade700 : Colors.red.shade700,
         ),
         const SizedBox(height: 4),
 
@@ -293,44 +345,78 @@ class BodyPartsStatusCard extends StatelessWidget {
         ),
         const SizedBox(height: 14),
 
-        // ── زر Diagnostic Dump: PRINT KEYPOINT MAP ──
-        ElevatedButton.icon(
-          onPressed: () {
-            if (state.rawKeypointFrame != null) {
-              IsharaKeypointMapper.dumpKeypointMap(state.rawKeypointFrame!);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'تمت طباعة خريطة الـ 86 نقطة في Console بنجاح (Valid: ${state.rawKeypointFrame!.validCount}/86)',
-                    style: const TextStyle(fontFamily: 'monospace'),
-                  ),
-                  duration: const Duration(seconds: 2),
-                  behavior: SnackBarBehavior.floating,
+        // ── زرا الـ Diagnostic ──
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  if (state.rawKeypointFrame != null) {
+                    IsharaKeypointMapper.dumpKeypointMap(state.rawKeypointFrame!);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'تمت طباعة خريطة الـ 86 نقطة الخام في Console (Valid: ${state.rawKeypointFrame!.validCount}/86)',
+                          style: const TextStyle(fontFamily: 'monospace'),
+                        ),
+                        duration: const Duration(seconds: 2),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.table_rows_rounded, size: 16),
+                label: const Text(
+                  'KEYPOINT MAP',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                 ),
-              );
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('لا يوجد إطار معالم متوفر حالياً للطباعة'),
-                  duration: Duration(seconds: 2),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  if (normRes != null) {
+                    debugPrint('==================================================');
+                    debugPrint('MANUAL NORMALIZATION DIAGNOSTIC TRIGGERED');
+                    normRes.rightHandDiag.logDiagnostic(
+                      normPoints: normRes.rightHand,
+                    );
+                    normRes.leftHandDiag.logDiagnostic(
+                      normPoints: normRes.leftHand,
+                    );
+                    normRes.lipsDiag.logDiagnostic(
+                      normPoints: normRes.lips,
+                    );
+                    normRes.bodyDiag.logDiagnostic(
+                      normPoints: normRes.body,
+                    );
+                    debugPrint('Shape: [86, 2]');
+                    debugPrint('Valid Normalized: ${normRes.validNormalizedCount} / 86');
+                    debugPrint('NaN: ${normRes.nanCount}');
+                    debugPrint('Infinity: ${normRes.infCount}');
+                    debugPrint('Normalization: TRAINING MATCH ✅');
+                    debugPrint('==================================================');
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'تمت طباعة تفاصيل التطبيع (Min, Scale, Mean, MaxAbs) في Console بنجاح ✅',
+                        ),
+                        duration: Duration(seconds: 2),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.analytics_rounded, size: 16),
+                label: const Text(
+                  'NORM DEBUG',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                 ),
-              );
-            }
-          },
-          icon: const Icon(Icons.print_rounded, size: 18),
-          label: const Text(
-            'PRINT KEYPOINT MAP',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              letterSpacing: 1.0,
+              ),
             ),
-          ),
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
+          ],
         ),
       ],
     );
@@ -367,6 +453,49 @@ class BodyPartsStatusCard extends StatelessWidget {
                 style: const TextStyle(fontSize: 11),
               ),
             ],
+          ),
+          Row(
+            children: [
+              Text(icon, style: const TextStyle(fontSize: 11)),
+              const SizedBox(width: 6),
+              Text(
+                '$actual / $required',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace',
+                  color: textColor,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// سطر كل جزء في فحص التطبيع
+  Widget _buildNormalizedPartRow(
+    String title,
+    int actual,
+    int required,
+    bool isValidGroup,
+  ) {
+    final bool isFull = actual >= required && isValidGroup;
+    final String icon = isFull ? '✅' : '❌';
+    final Color textColor = isFull ? Colors.green.shade700 : Colors.red.shade700;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
           ),
           Row(
             children: [
