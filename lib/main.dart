@@ -11,6 +11,8 @@ import 'package:ishara/views/home_view.dart';
 import 'package:provider/provider.dart';
 
 Future<void> main() async {
+  //main fun
+  // here no thiing 
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const IsharaApp());
 }
