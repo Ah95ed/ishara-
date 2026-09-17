@@ -82,37 +82,34 @@ void main() {
       expect(computePerson(false, false, false), isFalse);
     });
 
-    test('normalizeMlKitPoint maps 270deg (front camera portrait) correctly', () {
-      // Image 640x480 (W=640, H=480)
-      // Top center of portrait head in sensor coordinates: px=640, py=240
-      final norm = VisionDetectionService.normalizeMlKitPoint(
-        640,
-        240,
-        640,
-        480,
-        InputImageRotation.rotation270deg,
+    test('normalizeFacePoint handles rotated and unrotated detector coordinates', () {
+      // 1. Coordinates already rotated (Upright 480x640)
+      final normRotated = VisionDetectionService.normalizeFacePoint(
+        px: 240,
+        py: 320,
+        rawWidth: 640,
+        rawHeight: 480,
+        detWidth: 480,
+        detHeight: 640,
+        rotation: InputImageRotation.rotation270deg,
+        coordinatesAreRotated: true,
       );
+      expect(normRotated.x, closeTo(0.5, 0.001));
+      expect(normRotated.y, closeTo(0.5, 0.001));
 
-      // normX = py / H = 240 / 480 = 0.5
-      // normY = (W - px) / W = (640 - 640) / 640 = 0.0
-      expect(norm.x, closeTo(0.5, 0.001));
-      expect(norm.y, closeTo(0.0, 0.001));
-    });
-
-    test('normalizeMlKitPoint maps 90deg (back camera portrait) correctly', () {
-      // Top center of portrait head in sensor coordinates: px=0, py=240
-      final norm = VisionDetectionService.normalizeMlKitPoint(
-        0,
-        240,
-        640,
-        480,
-        InputImageRotation.rotation90deg,
+      // 2. Coordinates in unrotated buffer (640x480) with 270deg rotation
+      final normUnrotated = VisionDetectionService.normalizeFacePoint(
+        px: 640,
+        py: 240,
+        rawWidth: 640,
+        rawHeight: 480,
+        detWidth: 480,
+        detHeight: 640,
+        rotation: InputImageRotation.rotation270deg,
+        coordinatesAreRotated: false,
       );
-
-      // normX = (H - py) / H = (480 - 240) / 480 = 0.5
-      // normY = px / W = 0 / 640 = 0.0
-      expect(norm.x, closeTo(0.5, 0.001));
-      expect(norm.y, closeTo(0.0, 0.001));
+      expect(normUnrotated.x, closeTo(0.5, 0.001));
+      expect(normUnrotated.y, closeTo(0.0, 0.001));
     });
 
     test('Hand 21 points structure preserves MediaPipe 0..20 indices', () {

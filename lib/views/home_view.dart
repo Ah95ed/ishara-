@@ -23,6 +23,7 @@ class HomeView extends StatefulWidget {
 class _HomeViewState extends State<HomeView> {
   bool _showOverlay = true;
   bool _showNumbers = true;
+  bool _calibrationMode = false; // وضع معايرة واختبار نقطة الأنف ومعالم الوجه الأساسية
 
   @override
   void initState() {
@@ -240,6 +241,7 @@ class _HomeViewState extends State<HomeView> {
                   visionState: visionProvider.state,
                   showOverlay: _showOverlay,
                   showNumbers: _showNumbers,
+                  calibrationMode: _calibrationMode,
                   isStreaming: cameraProvider.isStreaming,
                 ),
                 Positioned(
@@ -253,6 +255,24 @@ class _HomeViewState extends State<HomeView> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        // زر تبديل وضع معايرة الأنف الفردية (Nose Calibration)
+                        IconButton(
+                          onPressed: () {
+                            setState(() {
+                              _calibrationMode = !_calibrationMode;
+                            });
+                          },
+                          icon: Icon(
+                            _calibrationMode
+                                ? Icons.gps_fixed_rounded
+                                : Icons.gps_not_fixed_rounded,
+                            color: _calibrationMode ? Colors.yellowAccent : Colors.white70,
+                            size: 20,
+                          ),
+                          tooltip: _calibrationMode
+                              ? 'العودة للشبكة الكاملة'
+                              : 'معايرة نقطة الأنف (#1) والتقاطع',
+                        ),
                         // زر تبديل إظهار الـ Overlay
                         IconButton(
                           onPressed: () {

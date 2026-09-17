@@ -4,13 +4,14 @@ import 'package:ishara/models/body_parts_detection_state.dart';
 import 'package:ishara/views/widgets/vision_landmarks_overlay_painter.dart';
 
 /// CameraPreviewWidget
-/// واجهة عرض الكاميرا مع Overlay المعالم الحقيقية اللحظية (Vision Landmarks)
-/// تدعم رسم الهيكل العظمي للأيدي (21 نقطة) وأرقامها، والشفاه (19 نقطة)، والوجه والجسم.
+/// واجهة عرض الكاميرا مع دمج طبقة الـ Overlay بدقة متطابقة Pixel-Perfect
+/// تضع الـ Overlay مباشرة كـ child لـ CameraPreview لضمان تطابق الأبعاد والـ Stack بنسبة 100%.
 class CameraPreviewWidget extends StatelessWidget {
   final CameraController? cameraController;
   final VisionLandmarksState? visionState;
   final bool showOverlay;
   final bool showNumbers;
+  final bool calibrationMode;
   final bool isStreaming;
 
   const CameraPreviewWidget({
@@ -19,6 +20,7 @@ class CameraPreviewWidget extends StatelessWidget {
     this.visionState,
     this.showOverlay = true,
     this.showNumbers = true,
+    this.calibrationMode = false,
     this.isStreaming = false,
   });
 
@@ -47,36 +49,39 @@ class CameraPreviewWidget extends StatelessWidget {
       );
     }
 
-    final aspectRatio = cameraController!.value.aspectRatio;
+    final rawRatio = cameraController!.value.aspectRatio;
+    // ضبط نسبة العرض القائمة (Portrait Aspect Ratio) لمنع أي تشويه أو مساحات سوداء
+    final previewAspectRatio = rawRatio < 1.0 ? rawRatio : (1.0 / rawRatio);
+
     final isFrontCamera =
         cameraController!.description.lensDirection == CameraLensDirection.front;
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: AspectRatio(
-        aspectRatio: aspectRatio,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // 1. طبقة بث الكاميرا المباشر
-            CameraPreview(cameraController!),
-
-            // 2. طبقة رسم المعالم الحقيقية اللحظية فوق الكاميرا
-            if (showOverlay && visionState != null)
-              Positioned.fill(
-                child: CustomPaint(
-                  painter: VisionLandmarksOverlayPainter(
-                    state: visionState!,
-                    isFrontCamera: isFrontCamera,
-                    showNumbers: showNumbers,
-                    showHands: true,
-                    showFaceAndLips: true,
-                    showPose: true,
-                    showTelemetry: true,
-                  ),
-                ),
-              ),
-          ],
+        aspectRatio: previewAspectRatio,
+        child: CameraPreview(
+          cameraController!,
+          // تمرير الـ Overlay كـ child مباشر داخل نفس Stack الكاميرا الداخلي
+          child: (showOverlay && visionState != null)
+              ? LayoutBuilder(
+                  builder: (context, constraints) {
+                    return CustomPaint(
+                      size: Size(constraints.maxWidth, constraints.maxHeight),
+                      painter: VisionLandmarksOverlayPainter(
+                        state: visionState!,
+                        isFrontCamera: isFrontCamera,
+                        showNumbers: showNumbers,
+                        showHands: true,
+                        showFaceAndLips: true,
+                        showPose: true,
+                        showTelemetry: true,
+                        calibrationMode: calibrationMode,
+                      ),
+                    );
+                  },
+                )
+              : null,
         ),
       ),
     );

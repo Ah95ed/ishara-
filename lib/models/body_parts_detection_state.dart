@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 /// حالات الكشف الثلاث
 enum DetectionStatus {
   pass, // ✅ كامل
@@ -106,6 +108,20 @@ class VisionLandmarksState {
   final List<NormalizedPoint>? facePoints;       // نقاط شبكة الوجه
   final List<PoseLandmarkPoint>? posePoints;     // نقاط وضعية الجسم والرأس
 
+  // ── نقاط المعايرة الفردية الدقيقة (Anchor Calibration Landmarks) ──
+  final NormalizedPoint? noseTipPoint;        // Index 1 (Nose Tip)
+  final NormalizedPoint? leftEyePoint;         // Index 33 (Left Eye Outer)
+  final NormalizedPoint? rightEyePoint;        // Index 263 (Right Eye Outer)
+  final NormalizedPoint? upperLipCenterPoint;  // Index 0 (Upper Lip Top)
+  final NormalizedPoint? lowerLipCenterPoint;  // Index 17 (Lower Lip Bottom)
+  final NormalizedPoint? chinPoint;            // Index 152 (Chin)
+
+  // ── معلومات أبعاد الإطار ومطابقة التحويل الهندسي ──
+  final Size sourceImageSize; // e.g. Size(480, 640)
+  final int rotationDegrees;  // e.g. 270
+  final bool isFrontCamera;
+  final bool isMirrored;
+
   // ── تشخيص البث وحالة الحركة وتجمد البيانات ──
   final int frameId;
   final int detectorResultId;
@@ -130,6 +146,16 @@ class VisionLandmarksState {
     this.lipPoints,
     this.facePoints,
     this.posePoints,
+    this.noseTipPoint,
+    this.leftEyePoint,
+    this.rightEyePoint,
+    this.upperLipCenterPoint,
+    this.lowerLipCenterPoint,
+    this.chinPoint,
+    this.sourceImageSize = const Size(480, 640),
+    this.rotationDegrees = 270,
+    this.isFrontCamera = true,
+    this.isMirrored = true,
     this.frameId = 0,
     this.detectorResultId = 0,
     this.timestamp,
@@ -154,6 +180,16 @@ class VisionLandmarksState {
     lipPoints: null,
     facePoints: null,
     posePoints: null,
+    noseTipPoint: null,
+    leftEyePoint: null,
+    rightEyePoint: null,
+    upperLipCenterPoint: null,
+    lowerLipCenterPoint: null,
+    chinPoint: null,
+    sourceImageSize: Size(480, 640),
+    rotationDegrees: 270,
+    isFrontCamera: true,
+    isMirrored: true,
     frameId: 0,
     detectorResultId: 0,
     timestamp: null,

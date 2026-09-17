@@ -123,35 +123,51 @@ class VisionDetectionService {
 
   bool get isInitialized => _isInitialized;
 
-  /// تحويل إحداثيات ML Kit غير المدورة إلى إحداثيات Portrait مطبعة [0..1]
-  static NormalizedPoint normalizeMlKitPoint(
-    double px,
-    double py,
-    int w,
-    int h,
-    InputImageRotation rotation,
-  ) {
-    switch (rotation) {
-      case InputImageRotation.rotation90deg:
-        return NormalizedPoint(
-          ((h - py) / h).clamp(0.0, 1.0),
-          (px / w).clamp(0.0, 1.0),
-        );
-      case InputImageRotation.rotation270deg:
-        return NormalizedPoint(
-          (py / h).clamp(0.0, 1.0),
-          ((w - px) / w).clamp(0.0, 1.0),
-        );
-      case InputImageRotation.rotation180deg:
-        return NormalizedPoint(
-          ((w - px) / w).clamp(0.0, 1.0),
-          ((h - py) / h).clamp(0.0, 1.0),
-        );
-      case InputImageRotation.rotation0deg:
-        return NormalizedPoint(
-          (px / w).clamp(0.0, 1.0),
-          (py / h).clamp(0.0, 1.0),
-        );
+  /// تحويل إحداثيات كواشف ML Kit إلى إحداثيات Portrait موحدة ومطبعة [0..1]
+  /// يعالج بدقة:
+  /// 1. الكواشف التي ترجع إحداثيات في فضاء الصورة المُدارة مسبقاً (Rotated Detector Space)
+  /// 2. الكواشف التي ترجع إحداثيات في فضاء الـ Buffer الأصلي غير المُدار (Raw Unrotated Space)
+  /// ويمنع كلياً تطبيق الدوران مرتين (Zero Double-Rotation)
+  static NormalizedPoint normalizeFacePoint({
+    required double px,
+    required double py,
+    required double rawWidth,
+    required double rawHeight,
+    required double detWidth,
+    required double detHeight,
+    required InputImageRotation rotation,
+    required bool coordinatesAreRotated,
+  }) {
+    if (coordinatesAreRotated) {
+      // الإحداثيات تم تدويرها بالفعل من ML Kit إلى الوضع القائم (Upright Frame)
+      return NormalizedPoint(
+        (px / detWidth).clamp(0.0, 1.0),
+        (py / detHeight).clamp(0.0, 1.0),
+      );
+    } else {
+      // الإحداثيات في فضاء المستشعر الأفقي الأصلي (Raw Unrotated Buffer)
+      switch (rotation) {
+        case InputImageRotation.rotation270deg:
+          return NormalizedPoint(
+            (py / rawHeight).clamp(0.0, 1.0),
+            ((rawWidth - px) / rawWidth).clamp(0.0, 1.0),
+          );
+        case InputImageRotation.rotation90deg:
+          return NormalizedPoint(
+            ((rawHeight - py) / rawHeight).clamp(0.0, 1.0),
+            (px / rawWidth).clamp(0.0, 1.0),
+          );
+        case InputImageRotation.rotation180deg:
+          return NormalizedPoint(
+            ((rawWidth - px) / rawWidth).clamp(0.0, 1.0),
+            ((rawHeight - py) / rawHeight).clamp(0.0, 1.0),
+          );
+        case InputImageRotation.rotation0deg:
+          return NormalizedPoint(
+            (px / rawWidth).clamp(0.0, 1.0),
+            (py / rawHeight).clamp(0.0, 1.0),
+          );
+      }
     }
   }
 
@@ -217,11 +233,41 @@ class VisionDetectionService {
     try {
       _calcFps();
 
-      final inputRotation = _inputRotationFromCamera(
-        sensorOrientation: sensorOrientation,
-        isFrontCamera: isFrontCamera,
-        deviceOrientation: deviceOrientation,
-      );
+      final int sensor = sensorOrientation ?? 90;
+      final int deviceAngle = switch (deviceOrientation) {
+        DeviceOrientation.portraitUp => 0,
+        DeviceOrientation.landscapeLeft => 90,
+        DeviceOrientation.portraitDown => 180,
+        DeviceOrientation.landscapeRight => 270,
+      };
+
+      final int rotationDegrees = isFrontCamera
+          ? (sensor + deviceAngle) % 360
+          : (sensor - deviceAngle + 360) % 360;
+
+      final inputRotation = InputImageRotationValue.fromRawValue(rotationDegrees) ??
+          InputImageRotation.rotation0deg;
+
+      // أبعاد الصورة القائمة (Portrait Upright) بعد تطبيق الدوران
+      final bool isRotated = (rotationDegrees == 90 || rotationDegrees == 270);
+      final double detW = isRotated ? image.height.toDouble() : image.width.toDouble();
+      final double detH = isRotated ? image.width.toDouble() : image.height.toDouble();
+      final Size sourceImageSize = Size(detW, detH);
+
+      // طباعة التشخيص المطلوبة في المتطلب 1 بحذافيرها
+      if (_cameraFrameCount % 15 == 1) {
+        debugPrint('==================================================');
+        debugPrint('[OVERLAY DIAGNOSTIC]');
+        debugPrint('Raw camera: ${image.width}x${image.height}');
+        debugPrint('Device orientation: $deviceOrientation');
+        debugPrint('Sensor orientation: $sensorOrientation');
+        debugPrint('Rotation: $rotationDegrees');
+        debugPrint('Detector image: ${detW.toInt()}x${detH.toInt()}');
+        debugPrint('Front camera: $isFrontCamera');
+        debugPrint('Mirrored: $isFrontCamera');
+        debugPrint('Fit mode: contain / AspectRatio');
+        debugPrint('==================================================');
+      }
 
       // بناء InputImage المشترك لـ Pose و FaceMesh
       final inputImage = _createInputImage(
@@ -240,14 +286,14 @@ class VisionDetectionService {
               deviceOrientation: deviceOrientation,
             );
 
-      final Size detSize = hd.detectionSize(
+      final Size handDetSize = hd.detectionSize(
         width: image.width,
         height: image.height,
         rotation: handRotation,
         maxDim: 640,
       );
-      final double detW = detSize.width > 0 ? detSize.width : 640.0;
-      final double detH = detSize.height > 0 ? detSize.height : 480.0;
+      final double handDetW = handDetSize.width > 0 ? handDetSize.width : detW;
+      final double handDetH = handDetSize.height > 0 ? handDetSize.height : detH;
 
       // تشغيل الكواشف الثلاثة على نفس الإطار بالتوازي
       final List<dynamic> results = await Future.wait([
@@ -277,11 +323,30 @@ class VisionDetectionService {
         final landmarks = pose.landmarks;
         final List<PoseLandmarkPoint> extractedPose = [];
 
+        // الفحص الذاتي لفضاء إحداثيات الـ Pose
+        final double maxPoseX = landmarks.values.map((l) => l.x).fold(0.0, math.max);
+        final double maxPoseY = landmarks.values.map((l) => l.y).fold(0.0, math.max);
+        final bool poseCoordsAreRotated = (maxPoseY > image.height) ||
+            (maxPoseX <= detW && maxPoseY <= detH && detW != image.width.toDouble());
+
+        NormalizedPoint normPose(double px, double py) {
+          return normalizeFacePoint(
+            px: px,
+            py: py,
+            rawWidth: image.width.toDouble(),
+            rawHeight: image.height.toDouble(),
+            detWidth: detW,
+            detHeight: detH,
+            rotation: inputRotation,
+            coordinatesAreRotated: poseCoordsAreRotated,
+          );
+        }
+
         for (final type in headPoseTypes) {
           final lm = landmarks[type];
           if (lm != null && lm.likelihood >= 0.35) {
             actualHeadPoints++;
-            final np = normalizeMlKitPoint(lm.x, lm.y, image.width, image.height, inputRotation);
+            final np = normPose(lm.x, lm.y);
             extractedPose.add(PoseLandmarkPoint(
               index: type.index,
               x: np.x,
@@ -295,7 +360,7 @@ class VisionDetectionService {
           final lm = landmarks[type];
           if (lm != null && lm.likelihood >= 0.35) {
             actualUpperBodyPoints++;
-            final np = normalizeMlKitPoint(lm.x, lm.y, image.width, image.height, inputRotation);
+            final np = normPose(lm.x, lm.y);
             extractedPose.add(PoseLandmarkPoint(
               index: type.index,
               x: np.x,
@@ -312,32 +377,60 @@ class VisionDetectionService {
 
       final int actualModelBodyHeadPoints = actualHeadPoints + actualUpperBodyPoints;
 
-      // ── 2. نقاط الوجه والشفاه الحقيقية ──
+      // ── 2. نقاط الوجه والشفاه الحقيقية مع نقاط المعايرة ──
       int actualFacePoints = 0;
       int actualModelFaceLipPoints = 0;
       List<NormalizedPoint>? lipPoints;
       List<NormalizedPoint>? facePoints;
 
+      NormalizedPoint? noseTipPoint;
+      NormalizedPoint? leftEyePoint;
+      NormalizedPoint? rightEyePoint;
+      NormalizedPoint? upperLipCenterPoint;
+      NormalizedPoint? lowerLipCenterPoint;
+      NormalizedPoint? chinPoint;
+
       if (faceMeshes.isNotEmpty) {
         final mesh = faceMeshes.first;
         actualFacePoints = mesh.points.length;
+
+        // الفحص الذاتي الرياضي الدقيق: هل إحداثيات ML Kit في فضاء الـ rotated أم unrotated؟
+        final double maxX = mesh.points.map((p) => p.x).fold(0.0, math.max);
+        final double maxY = mesh.points.map((p) => p.y).fold(0.0, math.max);
+        final bool coordinatesAreRotated = (maxY > image.height) ||
+            (maxX <= detW && maxY <= detH && detW != image.width.toDouble());
+
+        NormalizedPoint normMeshPt(FaceMeshPoint p) {
+          return normalizeFacePoint(
+            px: p.x,
+            py: p.y,
+            rawWidth: image.width.toDouble(),
+            rawHeight: image.height.toDouble(),
+            detWidth: detW,
+            detHeight: detH,
+            rotation: inputRotation,
+            coordinatesAreRotated: coordinatesAreRotated,
+          );
+        }
 
         final Map<int, FaceMeshPoint> pointMap = {
           for (final p in mesh.points) p.index: p,
         };
 
-        // استخراج نقاط الشفاه الـ 19
+        // استخراج معالم المعايرة الفردية الأساسية
+        if (pointMap[1] != null) noseTipPoint = normMeshPt(pointMap[1]!);
+        if (pointMap[33] != null) leftEyePoint = normMeshPt(pointMap[33]!);
+        if (pointMap[263] != null) rightEyePoint = normMeshPt(pointMap[263]!);
+        if (pointMap[0] != null) upperLipCenterPoint = normMeshPt(pointMap[0]!);
+        if (pointMap[17] != null) lowerLipCenterPoint = normMeshPt(pointMap[17]!);
+        if (pointMap[152] != null) chinPoint = normMeshPt(pointMap[152]!);
+
+        // استخراج نقاط الشفاه الـ 19 بنفس دالة التحويل تماماً (نفس الـ Transform)
         final List<NormalizedPoint> lips = [];
         for (final idx in lipMeshIndices) {
           final pt = pointMap[idx];
           if (pt != null) {
-            lips.add(normalizeMlKitPoint(
-              pt.x,
-              pt.y,
-              image.width,
-              image.height,
-              inputRotation,
-            ));
+            lips.add(normMeshPt(pt));
           }
         }
 
@@ -346,17 +439,10 @@ class VisionDetectionService {
           actualModelFaceLipPoints = lips.length;
         }
 
-        // استخراج معالم الوجه لرسم الـ Mesh (أخذ عينات متناسقة)
+        // استخراج عينات شبكة الوجه
         final List<NormalizedPoint> facePts = [];
         for (int i = 0; i < mesh.points.length; i += 3) {
-          final pt = mesh.points[i];
-          facePts.add(normalizeMlKitPoint(
-            pt.x,
-            pt.y,
-            image.width,
-            image.height,
-            inputRotation,
-          ));
+          facePts.add(normMeshPt(mesh.points[i]));
         }
         facePoints = facePts;
       }
@@ -372,9 +458,9 @@ class VisionDetectionService {
           final List<HandLandmarkPoint> points = [];
           for (int i = 0; i < 21; i++) {
             final lm = hand.landmarks[i];
-            final nx = (lm.x / detW).clamp(0.0, 1.0);
-            final ny = (lm.y / detH).clamp(0.0, 1.0);
-            final nz = lm.z / detW;
+            final nx = (lm.x / handDetW).clamp(0.0, 1.0);
+            final ny = (lm.y / handDetH).clamp(0.0, 1.0);
+            final nz = lm.z / handDetW;
             points.add(HandLandmarkPoint(index: i, x: nx, y: ny, z: nz));
           }
 
@@ -388,7 +474,7 @@ class VisionDetectionService {
         }
       }
 
-      // ── 4. حساب دلتا الحركة (Motion Delta) وفحص التجمد (Freeze Detection) ──
+      // ── 4. حساب دلتا الحركة وفحص التجمد ──
       double motionDelta = 0.0;
       int comparedJoints = 0;
 
@@ -431,7 +517,6 @@ class VisionDetectionService {
         _freezeCounter = 0;
       }
 
-      // تحديث المعالم السابقة — مسح فوري إذا اختفت اليد لمنع أي Cached Landmarks
       _prevRightHandPoints = rightHandPoints;
       _prevLeftHandPoints = leftHandPoints;
       _detectorResultCount++;
@@ -441,7 +526,7 @@ class VisionDetectionService {
           actualModelFaceLipPoints +
           actualModelBodyHeadPoints;
 
-      // ── 5. كشف الشخص (وجود جسم OR رأس OR وجه) ──
+      // ── 5. كشف الشخص وموازنات الاستقرار ──
       final bool rawPerson = (actualUpperBodyPoints > 0) ||
           (actualHeadPoints >= 2) ||
           (actualFacePoints >= 30);
@@ -454,15 +539,6 @@ class VisionDetectionService {
       final bool leftHandDetected = _leftHandStabilizer.update(actualLeftHandPoints >= 10);
 
       final int landmarkAgeMs = DateTime.now().difference(now).inMilliseconds;
-
-      // ── طباعة الـ Live Telemetry ──
-      debugPrint('========================================');
-      debugPrint('CAMERA_FRAME=$_cameraFrameCount | RESULT_ID=$_detectorResultCount | AGE=${landmarkAgeMs}ms | FPS=${_currentFps.toStringAsFixed(1)}');
-      debugPrint('MOTION_DELTA=${motionDelta.toStringAsFixed(4)}${isPossiblyFrozen ? " ⚠️ LANDMARKS POSSIBLY FROZEN" : ""}');
-      debugPrint('PERSON=$personDetected | HEAD=$actualHeadPoints/11 | FACE=$actualFacePoints/468 | LIPS=$actualModelFaceLipPoints/19');
-      debugPrint('RIGHT_HAND=${rightHandPoints != null ? "21/21 (Live)" : "0/21"} | LEFT_HAND=${leftHandPoints != null ? "21/21 (Live)" : "0/21"}');
-      debugPrint('TOTAL_MODEL_POINTS=$actualTotalModelPoints/86');
-      debugPrint('========================================');
 
       return VisionLandmarksState(
         personDetected: personDetected,
@@ -500,6 +576,16 @@ class VisionDetectionService {
         lipPoints: lipPoints,
         facePoints: facePoints,
         posePoints: posePoints,
+        noseTipPoint: noseTipPoint,
+        leftEyePoint: leftEyePoint,
+        rightEyePoint: rightEyePoint,
+        upperLipCenterPoint: upperLipCenterPoint,
+        lowerLipCenterPoint: lowerLipCenterPoint,
+        chinPoint: chinPoint,
+        sourceImageSize: sourceImageSize,
+        rotationDegrees: rotationDegrees,
+        isFrontCamera: isFrontCamera,
+        isMirrored: isFrontCamera,
         frameId: _cameraFrameCount,
         detectorResultId: _detectorResultCount,
         timestamp: now,
@@ -612,26 +698,6 @@ class VisionDetectionService {
     }
   }
 
-  InputImageRotation _inputRotationFromCamera({
-    int? sensorOrientation,
-    bool isFrontCamera = true,
-    required DeviceOrientation deviceOrientation,
-  }) {
-    final sensor = sensorOrientation ?? 90;
-    final deviceAngle = switch (deviceOrientation) {
-      DeviceOrientation.portraitUp => 0,
-      DeviceOrientation.landscapeLeft => 90,
-      DeviceOrientation.portraitDown => 180,
-      DeviceOrientation.landscapeRight => 270,
-    };
-
-    final rotationDegrees = isFrontCamera
-        ? (sensor + deviceAngle) % 360
-        : (sensor - deviceAngle + 360) % 360;
-
-    return InputImageRotationValue.fromRawValue(rotationDegrees) ??
-        InputImageRotation.rotation0deg;
-  }
 
   void reset() {
     _personStabilizer.reset();
