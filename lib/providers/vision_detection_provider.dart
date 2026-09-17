@@ -5,14 +5,14 @@ import 'package:ishara/models/body_parts_detection_state.dart';
 import 'package:ishara/services/vision_detection_service.dart';
 
 /// VisionDetectionProvider
-/// مزود الحالة البسيط المخصص لإدارة وعرض حالة التعرف على الأجزاء الـ 6 في الـ UI.
+/// مزود الحالة المخصص لإدارة وعرض حالة التعرف وعدد النقاط الحقيقية للأجزاء الـ 6 ونقاط الموديل الـ 86 في الـ UI.
 class VisionDetectionProvider extends ChangeNotifier {
   final VisionDetectionService _service;
-  BodyPartsDetectionState _state = BodyPartsDetectionState.empty;
+  VisionLandmarksState _state = VisionLandmarksState.empty;
 
   VisionDetectionProvider(this._service);
 
-  BodyPartsDetectionState get state => _state;
+  VisionLandmarksState get state => _state;
   bool get isInitialized => _service.isInitialized;
 
   Future<void> initialize() async {
@@ -41,7 +41,7 @@ class VisionDetectionProvider extends ChangeNotifier {
 
   void reset() {
     _service.reset();
-    _state = BodyPartsDetectionState.empty;
+    _state = VisionLandmarksState.empty;
     notifyListeners();
   }
 

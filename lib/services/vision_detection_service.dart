@@ -10,7 +10,7 @@ import 'package:hand_detection/hand_detection.dart' as hd;
 import 'package:ishara/models/body_parts_detection_state.dart';
 
 /// موازن الحالة المعتمد على عدد الإطارات (Frame-based Stabilizer)
-/// يمنع التذبذب السريع (Flickering) بدون أي تأخير زمني مصطنع.
+/// يمنع التذبذب السريع بدون أي تأخير زمني مصطنع.
 class PartStabilizer {
   final int framesToActivate;
   final int framesToDeactivate;
@@ -48,8 +48,8 @@ class PartStabilizer {
 }
 
 /// VisionDetectionService
-/// الخدمة الموحدة الوحيدة المسؤولة عن معالجة إطارات الكاميرا
-/// واستخراج الحالات الـ 6 (الشخص، الرأس، الوجه، الشفاه، اليد اليسرى، اليد اليمنى) في الوقت الحقيقي.
+/// الخدمة الموحدة المسؤولة عن معالجة إطارات الكاميرا
+/// واستخراج حالة وعدد النقاط الحقيقية لكل جزء ونقاط الموديل الـ 86.
 class VisionDetectionService {
   PoseDetector? _poseDetector;
   FaceMeshDetector? _faceMeshDetector;
@@ -57,6 +57,46 @@ class VisionDetectionService {
 
   bool _isInitialized = false;
   bool _isProcessing = false;
+
+  // ── الفهارس الحقيقية لنقاط الموديل الـ 86 ──
+  /// نقاط الشفاه الخارجية الـ 19 المستخرجة من MediaPipe Face Mesh:
+  static const List<int> lipMeshIndices = [
+    0, 17, 37, 39, 40, 61, 84, 91, 146, 181,
+    185, 267, 269, 270, 291, 314, 321, 375, 405
+  ];
+
+  /// معالم الرأس الـ 11 في MediaPipe Pose (الفهارس 0..10):
+  static const List<PoseLandmarkType> headPoseTypes = [
+    PoseLandmarkType.nose,           // 0
+    PoseLandmarkType.leftEyeInner,   // 1
+    PoseLandmarkType.leftEye,        // 2
+    PoseLandmarkType.leftEyeOuter,   // 3
+    PoseLandmarkType.rightEyeInner,  // 4
+    PoseLandmarkType.rightEye,       // 5
+    PoseLandmarkType.rightEyeOuter,  // 6
+    PoseLandmarkType.leftEar,        // 7
+    PoseLandmarkType.rightEar,       // 8
+    PoseLandmarkType.leftMouth,      // 9
+    PoseLandmarkType.rightMouth,     // 10
+  ];
+
+  /// معالم الجزء العلوي للجسم الـ 14 في MediaPipe Pose (الفهارس 11..24):
+  static const List<PoseLandmarkType> upperBodyPoseTypes = [
+    PoseLandmarkType.leftShoulder,   // 11
+    PoseLandmarkType.rightShoulder,  // 12
+    PoseLandmarkType.leftElbow,      // 13
+    PoseLandmarkType.rightElbow,     // 14
+    PoseLandmarkType.leftWrist,      // 15
+    PoseLandmarkType.rightWrist,     // 16
+    PoseLandmarkType.leftPinky,      // 17
+    PoseLandmarkType.rightPinky,     // 18
+    PoseLandmarkType.leftIndex,      // 19
+    PoseLandmarkType.rightIndex,     // 20
+    PoseLandmarkType.leftThumb,      // 21
+    PoseLandmarkType.rightThumb,     // 22
+    PoseLandmarkType.leftHip,        // 23
+    PoseLandmarkType.rightHip,       // 24
+  ];
 
   // موازنات الاستقرار الـ 6
   final PartStabilizer _personStabilizer = PartStabilizer(framesToActivate: 2, framesToDeactivate: 4);
@@ -79,7 +119,7 @@ class VisionDetectionService {
     if (_isInitialized) return;
 
     try {
-      // 1. كاشف الجسم والرأس (Google ML Kit Pose Detection - Stream Mode)
+      // 1. كاشف وضعية الجسم والرأس (Google ML Kit Pose Detection - Stream Mode)
       _poseDetector = PoseDetector(
         options: PoseDetectorOptions(
           model: PoseDetectionModel.base,
@@ -110,8 +150,8 @@ class VisionDetectionService {
     }
   }
 
-  /// معالجة إطار الكاميرا
-  Future<BodyPartsDetectionState?> processFrame(
+  /// معالجة إطار الكاميرا وحساب النقاط الفعلية لكل جزء
+  Future<VisionLandmarksState?> processFrame(
     CameraImage image, {
     int? sensorOrientation,
     bool isFrontCamera = true,
@@ -119,7 +159,7 @@ class VisionDetectionService {
   }) async {
     if (!_isInitialized || _isProcessing) return null;
 
-    // خفض الفريمات لمنع استهلاك المعالج وتراكم الطوابير (15-18 FPS)
+    // خفض الفريمات لمنع تراكم الطوابير (15-18 FPS)
     final now = DateTime.now();
     if (_lastProcessedFrameTime != null) {
       final elapsedMs = now.difference(_lastProcessedFrameTime!).inMilliseconds;
@@ -171,125 +211,129 @@ class VisionDetectionService {
       final List<FaceMesh> faceMeshes = results[1] as List<FaceMesh>;
       final List<hd.Hand> hands = results[2] as List<hd.Hand>;
 
-      // ── 1 & 2: فحص وضعية الجسم والرأس ──
-      bool rawPose = false;
-      bool rawHead = false;
-      int poseLandmarksCount = 0;
+      // ── 1. حساب نقاط الرأس والجسم من Pose Detector ──
+      int actualHeadPoints = 0;
+      int actualUpperBodyPoints = 0;
 
       if (poses.isNotEmpty) {
         final pose = poses.first;
         final landmarks = pose.landmarks;
-        poseLandmarksCount = landmarks.length;
 
-        // فحص الكتفين والحوض
-        final leftShoulder = landmarks[PoseLandmarkType.leftShoulder];
-        final rightShoulder = landmarks[PoseLandmarkType.rightShoulder];
-        final leftHip = landmarks[PoseLandmarkType.leftHip];
-        final rightHip = landmarks[PoseLandmarkType.rightHip];
-
-        final bool hasTorso = (leftShoulder != null && leftShoulder.likelihood > 0.35) ||
-            (rightShoulder != null && rightShoulder.likelihood > 0.35) ||
-            (leftHip != null && leftHip.likelihood > 0.35) ||
-            (rightHip != null && rightHip.likelihood > 0.35);
-
-        rawPose = landmarks.isNotEmpty && hasTorso;
-
-        // فحص معالم الرأس
-        final nose = landmarks[PoseLandmarkType.nose];
-        final leftEye = landmarks[PoseLandmarkType.leftEye];
-        final rightEye = landmarks[PoseLandmarkType.rightEye];
-        final leftEar = landmarks[PoseLandmarkType.leftEar];
-        final rightEar = landmarks[PoseLandmarkType.rightEar];
-
-        int headPoints = 0;
-        for (final p in [nose, leftEye, rightEye, leftEar, rightEar]) {
-          if (p != null && p.likelihood > 0.35) {
-            headPoints++;
+        // فحص معالم الرأس الـ 11
+        for (final type in headPoseTypes) {
+          final lm = landmarks[type];
+          if (lm != null && lm.likelihood >= 0.35) {
+            actualHeadPoints++;
           }
         }
-        rawHead = headPoints >= 2;
+
+        // فحص معالم الجسم العلوي الـ 14
+        for (final type in upperBodyPoseTypes) {
+          final lm = landmarks[type];
+          if (lm != null && lm.likelihood >= 0.35) {
+            actualUpperBodyPoints++;
+          }
+        }
       }
 
-      // ── 3 & 4: فحص الوجه والشفاه عبر Face Mesh ──
-      bool rawFace = false;
-      bool rawLips = false;
-      int faceLandmarksCount = 0;
+      // إجمالي نقاط Body/Head للموديل (11 + 14 = 25)
+      final int actualModelBodyHeadPoints = actualHeadPoints + actualUpperBodyPoints;
+
+      // ── 2. حساب نقاط الوجه والشفاه من Face Mesh ──
+      int actualFacePoints = 0;
+      int actualModelFaceLipPoints = 0;
 
       if (faceMeshes.isNotEmpty) {
         final mesh = faceMeshes.first;
-        faceLandmarksCount = mesh.points.length;
-        rawFace = faceLandmarksCount >= 30;
+        actualFacePoints = mesh.points.length; // 468 نقطة حقيقية
 
-        // عند ثبوت وجود شبكة الوجه، يُعتبر الرأس محققاً أيضاً
-        if (rawFace) {
-          rawHead = true;
-        }
-
-        // فحص حدود الشفتين
-        final upperTop = mesh.contours[FaceMeshContourType.upperLipTop];
-        final upperBottom = mesh.contours[FaceMeshContourType.upperLipBottom];
-        final lowerTop = mesh.contours[FaceMeshContourType.lowerLipTop];
-        final lowerBottom = mesh.contours[FaceMeshContourType.lowerLipBottom];
-
-        final int lipPointsCount = (upperTop?.length ?? 0) +
-            (upperBottom?.length ?? 0) +
-            (lowerTop?.length ?? 0) +
-            (lowerBottom?.length ?? 0);
-
-        rawLips = lipPointsCount >= 8;
-      }
-
-      // ── 1: الشخص = وجود وضعية جسم OR رأس OR وجه (الجهة لا تشترط اليد أبداً!) ──
-      final bool rawPerson = rawPose || rawHead || rawFace;
-
-      // ── 5 & 6: فحص اليد اليسرى واليد اليمنى ──
-      bool rawLeftHand = false;
-      bool rawRightHand = false;
-      int leftHandPoints = 0;
-      int rightHandPoints = 0;
-
-      for (final hand in hands) {
-        if (hand.hasLandmarks && hand.landmarks.length == 21) {
-          if (hand.handedness == hd.Handedness.left) {
-            rawLeftHand = true;
-            leftHandPoints = 21;
-          } else if (hand.handedness == hd.Handedness.right) {
-            rawRightHand = true;
-            rightHandPoints = 21;
+        // فحص معالم الشفاه الـ 19 من Mesh points
+        final Set<int> availableMeshIndices = mesh.points.map((p) => p.index).toSet();
+        for (final idx in lipMeshIndices) {
+          if (availableMeshIndices.contains(idx)) {
+            actualModelFaceLipPoints++;
           }
         }
       }
 
-      // ── تطبيق الموازنة Frame-based Stabilization ──
-      final bool person = _personStabilizer.update(rawPerson);
-      final bool head = _headStabilizer.update(rawHead);
-      final bool face = _faceStabilizer.update(rawFace);
-      final bool lips = _lipsStabilizer.update(rawLips);
-      final bool leftHand = _leftHandStabilizer.update(rawLeftHand);
-      final bool rightHand = _rightHandStabilizer.update(rawRightHand);
+      // ── 3. حساب نقاط اليد اليمنى واليسرى من MediaPipe Hands ──
+      int actualRightHandPoints = 0;
+      int actualLeftHandPoints = 0;
 
-      // ── طباعة Console المطلوبة بحذافيرها ──
+      for (final hand in hands) {
+        if (hand.hasLandmarks) {
+          final int count = hand.landmarks.length.clamp(0, 21);
+          if (hand.handedness == hd.Handedness.right) {
+            actualRightHandPoints = count;
+          } else if (hand.handedness == hd.Handedness.left) {
+            actualLeftHandPoints = count;
+          }
+        }
+      }
+
+      // ── 4. حساب إجمالي نقاط الموديل الـ 86 الفعلية ──
+      // ممنوع جمع 21+21+19+25 ثابتاً — الحساب ناتج من النقاط الحقيقية المكتشفة فقط
+      final int actualTotalModelPoints = actualRightHandPoints +
+          actualLeftHandPoints +
+          actualModelFaceLipPoints +
+          actualModelBodyHeadPoints;
+
+      // ── 5. كشف الشخص (وجود جسم OR رأس OR وجه — دون اشتراط اليد إطلاقاً) ──
+      final bool rawPerson = (actualUpperBodyPoints > 0) ||
+          (actualHeadPoints >= 2) ||
+          (actualFacePoints >= 30);
+
+      // تطبيق موازنات الاستقرار
+      final bool personDetected = _personStabilizer.update(rawPerson);
+      final bool headDetected = _headStabilizer.update(actualHeadPoints >= 2);
+      final bool faceDetected = _faceStabilizer.update(actualFacePoints >= 30);
+      final bool lipsDetected = _lipsStabilizer.update(actualModelFaceLipPoints >= 10);
+      final bool rightHandDetected = _rightHandStabilizer.update(actualRightHandPoints >= 10);
+      final bool leftHandDetected = _leftHandStabilizer.update(actualLeftHandPoints >= 10);
+
+      // ── طباعة الـ Console المطلوبة بحذافيرها ──
       debugPrint('========================================');
-      debugPrint('PERSON: $person');
-      debugPrint('HEAD: $head');
-      debugPrint('FACE: $face');
-      debugPrint('LIPS: $lips');
-      debugPrint('LEFT HAND: ${leftHand ? 21 : 0}');
-      debugPrint('RIGHT HAND: ${rightHand ? 21 : 0}');
-      debugPrint('FPS: ${_currentFps.toStringAsFixed(1)}');
+      debugPrint('PERSON=$personDetected');
+      debugPrint('HEAD=$actualHeadPoints/11');
+      debugPrint('FACE=$actualFacePoints/468');
+      debugPrint('LIPS=$actualModelFaceLipPoints/19');
+      debugPrint('RIGHT_HAND=$actualRightHandPoints/21');
+      debugPrint('LEFT_HAND=$actualLeftHandPoints/21');
+      debugPrint('MODEL_FACE_LIPS=$actualModelFaceLipPoints/19');
+      debugPrint('MODEL_BODY_HEAD=$actualModelBodyHeadPoints/25');
+      debugPrint('TOTAL=$actualTotalModelPoints/86');
       debugPrint('========================================');
 
-      return BodyPartsDetectionState(
-        person: person,
-        head: head,
-        face: face,
-        lips: lips,
-        leftHand: leftHand,
-        rightHand: rightHand,
-        leftHandLandmarks: leftHand ? leftHandPoints : 0,
-        rightHandLandmarks: rightHand ? rightHandPoints : 0,
-        faceLandmarksCount: faceLandmarksCount,
-        poseLandmarksCount: poseLandmarksCount,
+      return VisionLandmarksState(
+        personDetected: personDetected,
+        head: LandmarkPartStatus(
+          detected: headDetected,
+          actualPoints: actualHeadPoints,
+          requiredPoints: 11,
+        ),
+        face: LandmarkPartStatus(
+          detected: faceDetected,
+          actualPoints: actualFacePoints,
+          requiredPoints: 468,
+        ),
+        lips: LandmarkPartStatus(
+          detected: lipsDetected,
+          actualPoints: actualModelFaceLipPoints,
+          requiredPoints: 19,
+        ),
+        rightHand: LandmarkPartStatus(
+          detected: rightHandDetected,
+          actualPoints: actualRightHandPoints,
+          requiredPoints: 21,
+        ),
+        leftHand: LandmarkPartStatus(
+          detected: leftHandDetected,
+          actualPoints: actualLeftHandPoints,
+          requiredPoints: 21,
+        ),
+        modelFaceLipPoints: actualModelFaceLipPoints,
+        modelBodyHeadPoints: actualModelBodyHeadPoints,
+        totalModelPoints: actualTotalModelPoints,
         fps: _currentFps,
       );
     } catch (e) {

@@ -1,65 +1,109 @@
-/// BodyPartsDetectionState
-/// نموذج بيانات بسيط وموحد يمثل حالة اكتشاف الأجزاء الـ 6 في إطار الكاميرا.
-class BodyPartsDetectionState {
-  final bool person;
-  final bool head;
-  final bool face;
-  final bool lips;
-  final bool leftHand;
-  final bool rightHand;
+/// حالات الكشف الثلاث
+enum DetectionStatus {
+  pass, // ✅ كامل
+  partial, // ⚠️ جزئي
+  fail, // ❌ غير موجود
+}
 
-  final int leftHandLandmarks;
-  final int rightHandLandmarks;
-  final int faceLandmarksCount;
-  final int poseLandmarksCount;
+/// حالة كل جزء مع عدد النقاط الفعلي والمطلوب
+class LandmarkPartStatus {
+  final bool detected;
+  final int actualPoints;
+  final int requiredPoints;
+
+  const LandmarkPartStatus({
+    required this.detected,
+    required this.actualPoints,
+    required this.requiredPoints,
+  });
+
+  DetectionStatus get status {
+    if (actualPoints >= requiredPoints && requiredPoints > 0) {
+      return DetectionStatus.pass;
+    } else if (actualPoints > 0) {
+      return DetectionStatus.partial;
+    } else {
+      return DetectionStatus.fail;
+    }
+  }
+
+  String get icon {
+    switch (status) {
+      case DetectionStatus.pass:
+        return '✅';
+      case DetectionStatus.partial:
+        return '⚠️';
+      case DetectionStatus.fail:
+        return '❌';
+    }
+  }
+
+  static const emptyHead = LandmarkPartStatus(detected: false, actualPoints: 0, requiredPoints: 11);
+  static const emptyFace = LandmarkPartStatus(detected: false, actualPoints: 0, requiredPoints: 468);
+  static const emptyLips = LandmarkPartStatus(detected: false, actualPoints: 0, requiredPoints: 19);
+  static const emptyHand = LandmarkPartStatus(detected: false, actualPoints: 0, requiredPoints: 21);
+}
+
+/// VisionLandmarksState
+/// نموذج الحالة الشامل الذي يحتوي على حالة ونقاط كل جزء والنقاط الـ 86 للموديل
+class VisionLandmarksState {
+  final bool personDetected;
+
+  final LandmarkPartStatus head;
+  final LandmarkPartStatus face;
+  final LandmarkPartStatus lips;
+  final LandmarkPartStatus rightHand;
+  final LandmarkPartStatus leftHand;
+
+  final int modelFaceLipPoints; // 0..19
+  final int modelBodyHeadPoints; // 0..25
+  final int totalModelPoints; // 0..86
   final double fps;
 
-  const BodyPartsDetectionState({
-    this.person = false,
-    this.head = false,
-    this.face = false,
-    this.lips = false,
-    this.leftHand = false,
-    this.rightHand = false,
-    this.leftHandLandmarks = 0,
-    this.rightHandLandmarks = 0,
-    this.faceLandmarksCount = 0,
-    this.poseLandmarksCount = 0,
+  const VisionLandmarksState({
+    required this.personDetected,
+    required this.head,
+    required this.face,
+    required this.lips,
+    required this.rightHand,
+    required this.leftHand,
+    required this.modelFaceLipPoints,
+    required this.modelBodyHeadPoints,
+    required this.totalModelPoints,
     this.fps = 0.0,
   });
 
-  static const BodyPartsDetectionState empty = BodyPartsDetectionState();
+  static const empty = VisionLandmarksState(
+    personDetected: false,
+    head: LandmarkPartStatus.emptyHead,
+    face: LandmarkPartStatus.emptyFace,
+    lips: LandmarkPartStatus.emptyLips,
+    rightHand: LandmarkPartStatus.emptyHand,
+    leftHand: LandmarkPartStatus.emptyHand,
+    modelFaceLipPoints: 0,
+    modelBodyHeadPoints: 0,
+    totalModelPoints: 0,
+    fps: 0.0,
+  );
 
-  BodyPartsDetectionState copyWith({
-    bool? person,
-    bool? head,
-    bool? face,
-    bool? lips,
-    bool? leftHand,
-    bool? rightHand,
-    int? leftHandLandmarks,
-    int? rightHandLandmarks,
-    int? faceLandmarksCount,
-    int? poseLandmarksCount,
-    double? fps,
-  }) {
-    return BodyPartsDetectionState(
-      person: person ?? this.person,
-      head: head ?? this.head,
-      face: face ?? this.face,
-      lips: lips ?? this.lips,
-      leftHand: leftHand ?? this.leftHand,
-      rightHand: rightHand ?? this.rightHand,
-      leftHandLandmarks: leftHandLandmarks ?? this.leftHandLandmarks,
-      rightHandLandmarks: rightHandLandmarks ?? this.rightHandLandmarks,
-      faceLandmarksCount: faceLandmarksCount ?? this.faceLandmarksCount,
-      poseLandmarksCount: poseLandmarksCount ?? this.poseLandmarksCount,
-      fps: fps ?? this.fps,
-    );
+  DetectionStatus get totalStatus {
+    if (totalModelPoints >= 86) {
+      return DetectionStatus.pass;
+    } else if (totalModelPoints > 0) {
+      return DetectionStatus.partial;
+    } else {
+      return DetectionStatus.fail;
+    }
   }
 
-  @override
-  String toString() {
-    return 'BodyPartsDetectionState(person: $person, head: $head, face: $face, lips: $lips, leftHand: $leftHand ($leftHandLandmarks), rightHand: $rightHand ($rightHandLandmarks), fps: ${fps.toStringAsFixed(1)})';
+  String get totalIcon {
+    switch (totalStatus) {
+      case DetectionStatus.pass:
+        return '✅';
+      case DetectionStatus.partial:
+        return '❌'; // كما طلب المستخدم: إذا ناقصة اعرض ❌ X/86
+      case DetectionStatus.fail:
+        return '❌';
+    }
   }
 }

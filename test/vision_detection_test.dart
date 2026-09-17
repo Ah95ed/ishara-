@@ -3,83 +3,82 @@ import 'package:ishara/models/body_parts_detection_state.dart';
 import 'package:ishara/services/vision_detection_service.dart';
 
 void main() {
-  group('Vision Detection State & Stabilization Tests', () {
-    test('BodyPartsDetectionState initializes with false for all 6 parts', () {
-      const state = BodyPartsDetectionState.empty;
-      expect(state.person, isFalse);
-      expect(state.head, isFalse);
-      expect(state.face, isFalse);
-      expect(state.lips, isFalse);
-      expect(state.leftHand, isFalse);
-      expect(state.rightHand, isFalse);
-      expect(state.leftHandLandmarks, equals(0));
-      expect(state.rightHandLandmarks, equals(0));
+  group('Vision Landmarks State, Counts & 86 Points Tests', () {
+    test('LandmarkPartStatus computes pass, partial, fail correctly', () {
+      const fullHand = LandmarkPartStatus(detected: true, actualPoints: 21, requiredPoints: 21);
+      expect(fullHand.status, equals(DetectionStatus.pass));
+      expect(fullHand.icon, equals('✅'));
+
+      const partialHand = LandmarkPartStatus(detected: true, actualPoints: 14, requiredPoints: 21);
+      expect(partialHand.status, equals(DetectionStatus.partial));
+      expect(partialHand.icon, equals('⚠️'));
+
+      const noHand = LandmarkPartStatus(detected: false, actualPoints: 0, requiredPoints: 21);
+      expect(noHand.status, equals(DetectionStatus.fail));
+      expect(noHand.icon, equals('❌'));
     });
 
-    test('PartStabilizer activates only after consecutive positive frames', () {
-      final stabilizer = PartStabilizer(framesToActivate: 2, framesToDeactivate: 4);
-
-      // Frame 1: positive (not yet active)
-      expect(stabilizer.update(true), isFalse);
-
-      // Frame 2: positive (activates now)
-      expect(stabilizer.update(true), isTrue);
-
-      // Frame 3: stays active
-      expect(stabilizer.update(true), isTrue);
-    });
-
-    test('PartStabilizer does not deactivate on single frame dropout', () {
-      final stabilizer = PartStabilizer(framesToActivate: 2, framesToDeactivate: 4);
-
-      // Activate
-      stabilizer.update(true);
-      stabilizer.update(true);
-      expect(stabilizer.update(true), isTrue);
-
-      // 1 negative frame -> should stay True
-      expect(stabilizer.update(false), isTrue);
-
-      // 2 negative frames -> should stay True
-      expect(stabilizer.update(false), isTrue);
-
-      // 3 negative frames -> should stay True
-      expect(stabilizer.update(false), isTrue);
-
-      // 4 negative frames -> deactivates now
-      expect(stabilizer.update(false), isFalse);
-    });
-
-    test('Person is detected if pose, head, or face is present without hands', () {
-      bool computePerson(bool pose, bool head, bool face) =>
-          pose || head || face;
-
-      // Test 1: Only pose is detected (person with hands hidden)
-      expect(computePerson(true, false, false), isTrue);
-
-      // Test 2: Only head is detected
-      expect(computePerson(false, true, false), isTrue);
-
-      // Test 3: Only face is detected
-      expect(computePerson(false, false, true), isTrue);
-
-      // Test 4: All false
-      expect(computePerson(false, false, false), isFalse);
-    });
-
-    test('Face and Lips are independent states', () {
-      const faceDetectedState = BodyPartsDetectionState(
-        person: true,
-        head: true,
-        face: true,
-        lips: false, // Mouth covered
-        leftHand: false,
-        rightHand: false,
+    test('VisionLandmarksState calculates exact 86 points summation', () {
+      // Case 1: Full detection (86/86)
+      const fullState = VisionLandmarksState(
+        personDetected: true,
+        head: LandmarkPartStatus(detected: true, actualPoints: 11, requiredPoints: 11),
+        face: LandmarkPartStatus(detected: true, actualPoints: 468, requiredPoints: 468),
+        lips: LandmarkPartStatus(detected: true, actualPoints: 19, requiredPoints: 19),
+        rightHand: LandmarkPartStatus(detected: true, actualPoints: 21, requiredPoints: 21),
+        leftHand: LandmarkPartStatus(detected: true, actualPoints: 21, requiredPoints: 21),
+        modelFaceLipPoints: 19,
+        modelBodyHeadPoints: 25,
+        totalModelPoints: 21 + 21 + 19 + 25, // 86
       );
 
-      expect(faceDetectedState.face, isTrue);
-      expect(faceDetectedState.lips, isFalse);
-      expect(faceDetectedState.person, isTrue);
+      expect(fullState.totalModelPoints, equals(86));
+      expect(fullState.totalStatus, equals(DetectionStatus.pass));
+      expect(fullState.totalIcon, equals('✅'));
+
+      // Case 2: One hand missing (65/86)
+      const missingHandState = VisionLandmarksState(
+        personDetected: true,
+        head: LandmarkPartStatus(detected: true, actualPoints: 11, requiredPoints: 11),
+        face: LandmarkPartStatus(detected: true, actualPoints: 468, requiredPoints: 468),
+        lips: LandmarkPartStatus(detected: true, actualPoints: 19, requiredPoints: 19),
+        rightHand: LandmarkPartStatus(detected: false, actualPoints: 0, requiredPoints: 21),
+        leftHand: LandmarkPartStatus(detected: true, actualPoints: 21, requiredPoints: 21),
+        modelFaceLipPoints: 19,
+        modelBodyHeadPoints: 25,
+        totalModelPoints: 0 + 21 + 19 + 25, // 65
+      );
+
+      expect(missingHandState.totalModelPoints, equals(65));
+      expect(missingHandState.totalIcon, equals('❌'));
+
+      // Case 3: Empty (0/86)
+      expect(VisionLandmarksState.empty.totalModelPoints, equals(0));
+      expect(VisionLandmarksState.empty.totalIcon, equals('❌'));
+    });
+
+    test('PartStabilizer activates after consecutive positive frames and holds', () {
+      final stabilizer = PartStabilizer(framesToActivate: 2, framesToDeactivate: 4);
+
+      expect(stabilizer.update(true), isFalse);
+      expect(stabilizer.update(true), isTrue);
+      expect(stabilizer.update(true), isTrue);
+
+      // Brief dropouts do not deactivate immediately
+      expect(stabilizer.update(false), isTrue);
+      expect(stabilizer.update(false), isTrue);
+      expect(stabilizer.update(false), isTrue);
+      expect(stabilizer.update(false), isFalse); // deactivates after 4 consecutive drops
+    });
+
+    test('Person is Boolean only and does not require hands', () {
+      bool computePerson(bool upperBody, bool head, bool face) =>
+          upperBody || head || face;
+
+      expect(computePerson(true, false, false), isTrue);
+      expect(computePerson(false, true, false), isTrue);
+      expect(computePerson(false, false, true), isTrue);
+      expect(computePerson(false, false, false), isFalse);
     });
   });
 }
