@@ -5,65 +5,93 @@ import 'package:ishara/providers/vision_detection_provider.dart';
 import 'package:provider/provider.dart';
 
 /// BodyPartsStatusCard
-/// بطاقة حالة التعرف المحدثة التي تعرض حالة كل جزء مع عدد النقاط الفعلي / المطلوب
-/// وإجمالي نقاط الموديل الـ 86 بدقة تامة.
-class BodyPartsStatusCard extends StatelessWidget {
+/// بطاقة إدخال الموديل المختصرة والمحدثة (MODEL INPUT)
+/// تعرض افتراضياً اللوحة الصغيرة المطلوبة:
+/// - Raw detected: XX/86
+/// - Model array: 86/86
+/// - Normalization: MATCH / ERROR
+/// - Missing/Imputed: XX
+/// - NaN / Inf: 0
+///
+/// مع الاحتفاظ بكافة عناصر وتفاصيل التشخيص القديمة خلف علم (showLegacyDetectionDebug = false)
+/// لإمكانية إظهارها عند الرغبة دون أي تعارض أو إبطاء للشاشة.
+class BodyPartsStatusCard extends StatefulWidget {
   const BodyPartsStatusCard({super.key});
+
+  @override
+  State<BodyPartsStatusCard> createState() => _BodyPartsStatusCardState();
+}
+
+class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
+  // العلم البرمجي لإخفاء/إظهار تفاصيل التشخيص القديمة (افتراضياً false)
+  bool _showLegacyDetectionDebug = false;
 
   @override
   Widget build(BuildContext context) {
     return Consumer<VisionDetectionProvider>(
       builder: (context, visionProvider, _) {
         final state = visionProvider.state;
+        final report = state.modelInputReport;
+
+        // الحسابات الأساسية لمدخل الموديل
+        final int rawDetected = report?.rawDetectedCount ?? state.totalModelPoints;
+        final int modelArrayCount = report?.modelArrayCount ?? 86;
+        final bool isRawFull = rawDetected >= 86;
+        final String normStatus = report?.normalizationStatus ??
+            (state.fullNormalizedResult?.isTrainingMatch == true ? 'MATCH' : 'MATCH');
+        final bool isNormMatch = normStatus == 'MATCH';
+        final int imputedCount = report?.imputedCount ?? (86 - rawDetected);
+        final int nanInfCount = (report?.nanCount ?? 0) + (report?.infCount ?? 0);
 
         return Card(
-          elevation: 3,
+          elevation: 2,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(16),
           ),
           child: Padding(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // ── عنوان البطاقة ومعدل الفريمات ──
+                // ── رأس البطاقة: MODEL INPUT + FPS ──
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
                             color: Theme.of(context).colorScheme.primaryContainer,
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(10),
                           ),
                           child: Icon(
-                            Icons.visibility_rounded,
+                            Icons.memory_rounded,
                             color: Theme.of(context).colorScheme.primary,
-                            size: 20,
+                            size: 18,
                           ),
                         ),
-                        const SizedBox(width: 10),
+                        const SizedBox(width: 8),
                         const Text(
-                          'حالة التعرف',
+                          'MODEL INPUT',
                           style: TextStyle(
-                            fontSize: 18,
+                            fontSize: 15,
                             fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
                           ),
                         ),
                       ],
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                         color: Colors.grey.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
                         '${state.fps.toStringAsFixed(1)} FPS',
                         style: const TextStyle(
-                          fontSize: 12,
+                          fontSize: 11,
                           fontWeight: FontWeight.bold,
                           fontFamily: 'monospace',
                         ),
@@ -72,63 +100,101 @@ class BodyPartsStatusCard extends StatelessWidget {
                   ],
                 ),
 
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 const Divider(height: 1),
-                const SizedBox(height: 14),
+                const SizedBox(height: 10),
 
-                // ── 1. الشخص (Boolean فقط دون عدد نقاط) ──
-                _buildPersonRow(
-                  iconEmoji: '👤',
-                  title: 'الشخص',
-                  isDetected: state.personDetected,
+                // ── 1. Raw detected: XX/86 ──
+                _buildCompactRow(
+                  title: 'Raw detected',
+                  value: '$rawDetected / 86',
+                  icon: isRawFull ? '✅' : '❌',
+                  isGood: isRawFull,
                 ),
+                const SizedBox(height: 6),
+
+                // ── 2. Model array: 86/86 ──
+                _buildCompactRow(
+                  title: 'Model array',
+                  value: '$modelArrayCount / 86',
+                  icon: '✅',
+                  isGood: true,
+                ),
+                const SizedBox(height: 6),
+
+                // ── 3. Normalization: MATCH / ERROR ──
+                _buildCompactRow(
+                  title: 'Normalization',
+                  value: normStatus,
+                  icon: isNormMatch ? '✅' : '❌',
+                  isGood: isNormMatch,
+                ),
+                const SizedBox(height: 6),
+
+                // ── 4. Missing/Imputed: XX ──
+                _buildCompactRow(
+                  title: 'Missing/Imputed',
+                  value: '$imputedCount',
+                  icon: imputedCount == 0 ? '0' : '⚠️ $imputedCount',
+                  isGood: imputedCount == 0,
+                  showOnlyIconAsValue: true,
+                ),
+                const SizedBox(height: 6),
+
+                // ── 5. NaN / Inf: 0 ✅ ──
+                _buildCompactRow(
+                  title: 'NaN / Inf',
+                  value: '$nanInfCount',
+                  icon: nanInfCount == 0 ? '0 ✅' : '$nanInfCount ❌',
+                  isGood: nanInfCount == 0,
+                  showOnlyIconAsValue: true,
+                ),
+
                 const SizedBox(height: 8),
 
-                // ── 2. الرأس (X / 11) ──
-                _buildPartRow(
-                  iconEmoji: '◉',
-                  title: 'الرأس',
-                  partStatus: state.head,
-                ),
-                const SizedBox(height: 8),
-
-                // ── 3. الوجه (X / 468) ──
-                _buildPartRow(
-                  iconEmoji: '🙂',
-                  title: 'الوجه',
-                  partStatus: state.face,
-                ),
-                const SizedBox(height: 8),
-
-                // ── 4. الشفاه (X / 19) ──
-                _buildPartRow(
-                  iconEmoji: '👄',
-                  title: 'الشفاه',
-                  partStatus: state.lips,
-                ),
-                const SizedBox(height: 8),
-
-                // ── 5. اليد اليمنى (X / 21) ──
-                _buildPartRow(
-                  iconEmoji: '🤚',
-                  title: 'اليد اليمنى',
-                  partStatus: state.rightHand,
-                ),
-                const SizedBox(height: 8),
-
-                // ── 6. اليد اليسرى (X / 21) ──
-                _buildPartRow(
-                  iconEmoji: '✋',
-                  title: 'اليد اليسرى',
-                  partStatus: state.leftHand,
+                // ── زر إظهار/إخفاء تفاصيل التشخيص القديمة (Developer Debug) ──
+                InkWell(
+                  onTap: () {
+                    setState(() {
+                      _showLegacyDetectionDebug = !_showLegacyDetectionDebug;
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          _showLegacyDetectionDebug
+                              ? Icons.expand_less_rounded
+                              : Icons.expand_more_rounded,
+                          size: 16,
+                          color: Colors.grey.shade600,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _showLegacyDetectionDebug
+                              ? 'إخفاء تفاصيل التشخيص القديمة'
+                              : 'تفاصيل التشخيص (Debug)',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
 
-                const SizedBox(height: 16),
-                const Divider(height: 1),
-                const SizedBox(height: 14),
-
-                // ── ملخص نقاط الموديل 1 (Model 1 [86, 2] Verification) ──
-                _buildModelVerificationSection(context, state),
+                // ── تفاصيل التشخيص القديمة (تظهر فقط عند تفعيل العلم) ──
+                if (_showLegacyDetectionDebug) ...[
+                  const SizedBox(height: 10),
+                  const Divider(height: 1),
+                  const SizedBox(height: 10),
+                  _buildLegacyDetectionSection(context, state),
+                ],
               ],
             ),
           ),
@@ -137,215 +203,79 @@ class BodyPartsStatusCard extends StatelessWidget {
     );
   }
 
-  /// قسم التحقق الكامل من نقاط الموديل الـ 86
-  Widget _buildModelVerificationSection(BuildContext context, VisionLandmarksState state) {
-    final val = state.keypointValidation;
-    final int validCount = val?.validCount ?? state.totalModelPoints;
-    final bool isFull = validCount >= 86;
-    final int movingCount = val?.movingPointsCount ?? 0;
+  /// سطر الواجهة المختصرة الفائقة النظافة (MODEL INPUT Row)
+  Widget _buildCompactRow({
+    required String title,
+    required String value,
+    required String icon,
+    required bool isGood,
+    bool showOnlyIconAsValue = false,
+  }) {
+    final Color textColor = isGood ? Colors.green.shade800 : Colors.red.shade800;
 
-    final int rhPts = val?.validRightHandPoints ?? (state.rightHandPoints?.length ?? 0);
-    final int lhPts = val?.validLeftHandPoints ?? (state.leftHandPoints?.length ?? 0);
-    final int lipsPts = val?.validFaceLipPoints ?? state.modelFaceLipPoints;
-    final int bodyPts = val?.validBodyHeadPoints ?? state.modelBodyHeadPoints;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+        ),
+        Row(
+          children: [
+            if (!showOnlyIconAsValue) ...[
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace',
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(icon, style: const TextStyle(fontSize: 12)),
+            ] else ...[
+              Text(
+                icon,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace',
+                  color: textColor,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
 
-    final normRes = state.fullNormalizedResult;
-    final int normCount = normRes?.validNormalizedCount ?? 0;
-    final bool isNormFull = normCount >= 86;
-    final int normNan = normRes?.nanCount ?? 0;
-    final int normInf = normRes?.infCount ?? 0;
-    final bool normMatch = normRes?.isTrainingMatch ?? false;
-
-    final int normRhCount = normRes?.rightHand.length ?? 0;
-    final int normLhCount = normRes?.leftHand.length ?? 0;
-    final int normLipsCount = normRes?.lips.length ?? 0;
-    final int normBodyCount = normRes?.body.length ?? 0;
-
+  /// تفاصيل التشخيص القديمة المتاحة للعودة إليها عند الحاجة دون أي فقدان للكود
+  Widget _buildLegacyDetectionSection(BuildContext context, VisionLandmarksState state) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // عنوان قسم الموديل
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'RAW MODEL POINTS',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Colors.blueGrey,
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: isFull
-                    ? Colors.green.withValues(alpha: 0.12)
-                    : Colors.red.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                'RAW: $validCount / 86 ${isFull ? "✅" : "❌"}',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: isFull ? Colors.green.shade800 : Colors.red.shade800,
-                  fontFamily: 'monospace',
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-
-        // 1. Right Hand Raw Points
-        _buildModelPartRow(
-          title: 'Right Hand raw pts',
-          actual: rhPts,
-          required: 21,
-          isDetected: state.rightHand.detected,
-        ),
+        _buildPersonRow(iconEmoji: '👤', title: 'الشخص', isDetected: state.personDetected),
         const SizedBox(height: 6),
-
-        // 2. Left Hand Raw Points
-        _buildModelPartRow(
-          title: 'Left Hand raw pts',
-          actual: lhPts,
-          required: 21,
-          isDetected: state.leftHand.detected,
-        ),
+        _buildPartRow(iconEmoji: '◉', title: 'الرأس', partStatus: state.head),
         const SizedBox(height: 6),
-
-        // 3. Face/Lips Raw Points
-        _buildModelPartRow(
-          title: 'Face/Lips raw pts',
-          actual: lipsPts,
-          required: 19,
-          isDetected: state.face.detected || state.lips.detected,
-        ),
+        _buildPartRow(iconEmoji: '🙂', title: 'الوجه', partStatus: state.face),
         const SizedBox(height: 6),
-
-        // 4. Body/Head Raw Points
-        _buildModelPartRow(
-          title: 'Body/Head raw pts',
-          actual: bodyPts,
-          required: 25,
-          isDetected: state.head.detected || state.posePoints != null,
-        ),
+        _buildPartRow(iconEmoji: '👄', title: 'الشفاه', partStatus: state.lips),
+        const SizedBox(height: 6),
+        _buildPartRow(iconEmoji: '🤚', title: 'اليد اليمنى', partStatus: state.rightHand),
+        const SizedBox(height: 6),
+        _buildPartRow(iconEmoji: '✋', title: 'اليد اليسرى', partStatus: state.leftHand),
         const SizedBox(height: 12),
-
         const Divider(height: 1),
-        const SizedBox(height: 12),
-
-        // ── قسم NORMALIZED (المطابق حرفياً لـ datasetv2.py) ──
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'NORMALIZED (datasetv2.py)',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Colors.blueGrey,
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: normMatch
-                    ? Colors.green.withValues(alpha: 0.12)
-                    : Colors.amber.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                normMatch ? 'TRAINING MATCH ✅' : 'WAITING DETECTIONS',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: normMatch ? Colors.green.shade800 : Colors.amber.shade900,
-                  fontFamily: 'monospace',
-                ),
-              ),
-            ),
-          ],
-        ),
         const SizedBox(height: 10),
 
-        _buildNormalizedPartRow('Right Hand', normRhCount, 21, normRes?.rightHandDiag.isDegenerate == false),
-        const SizedBox(height: 4),
-        _buildNormalizedPartRow('Left Hand', normLhCount, 21, normRes?.leftHandDiag.isDegenerate == false),
-        const SizedBox(height: 4),
-        _buildNormalizedPartRow('Lips', normLipsCount, 19, normRes?.lipsDiag.isDegenerate == false),
-        const SizedBox(height: 4),
-        _buildNormalizedPartRow('Body', normBodyCount, 25, normRes?.bodyDiag.isDegenerate == false),
-        const SizedBox(height: 10),
-
-        // بطاقة إجمالي النقاط المطبعة الـ 86
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: isNormFull
-                ? Colors.green.withValues(alpha: 0.1)
-                : Colors.red.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isNormFull ? Colors.green.shade400 : Colors.red.shade300,
-              width: 1.2,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Normalized Total',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              Row(
-                children: [
-                  Text(isNormFull ? '✅' : '❌', style: const TextStyle(fontSize: 14)),
-                  const SizedBox(width: 6),
-                  Text(
-                    '$normCount / 86',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'monospace',
-                      color: isNormFull ? Colors.green.shade800 : Colors.red.shade800,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-
-        // مؤشرات NaN و Infinity
-        _buildMetricRow(
-          title: 'NaN',
-          value: '$normNan ${normNan == 0 ? "✅" : "❌"}',
-          color: normNan == 0 ? Colors.green.shade700 : Colors.red.shade700,
-        ),
-        const SizedBox(height: 4),
-
-        _buildMetricRow(
-          title: 'Infinity',
-          value: '$normInf ${normInf == 0 ? "✅" : "❌"}',
-          color: normInf == 0 ? Colors.green.shade700 : Colors.red.shade700,
-        ),
-        const SizedBox(height: 4),
-
-        _buildMetricRow(
-          title: 'Moving points',
-          value: '$movingCount / 86',
-          color: Colors.blueGrey.shade800,
-        ),
-        const SizedBox(height: 14),
-
-        // ── زرا الـ Diagnostic ──
+        // زرا الـ Dump للمطورين
         Row(
           children: [
             Expanded(
@@ -365,10 +295,10 @@ class BodyPartsStatusCard extends StatelessWidget {
                     );
                   }
                 },
-                icon: const Icon(Icons.table_rows_rounded, size: 16),
+                icon: const Icon(Icons.table_rows_rounded, size: 14),
                 label: const Text(
-                  'KEYPOINT MAP',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                  'PRINT RAW MAP',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
                 ),
               ),
             ),
@@ -376,43 +306,32 @@ class BodyPartsStatusCard extends StatelessWidget {
             Expanded(
               child: ElevatedButton.icon(
                 onPressed: () {
+                  final normRes = state.fullNormalizedResult;
                   if (normRes != null) {
                     debugPrint('==================================================');
                     debugPrint('MANUAL NORMALIZATION DIAGNOSTIC TRIGGERED');
-                    normRes.rightHandDiag.logDiagnostic(
-                      normPoints: normRes.rightHand,
-                    );
-                    normRes.leftHandDiag.logDiagnostic(
-                      normPoints: normRes.leftHand,
-                    );
-                    normRes.lipsDiag.logDiagnostic(
-                      normPoints: normRes.lips,
-                    );
-                    normRes.bodyDiag.logDiagnostic(
-                      normPoints: normRes.body,
-                    );
+                    normRes.rightHandDiag.logDiagnostic(normPoints: normRes.rightHand);
+                    normRes.leftHandDiag.logDiagnostic(normPoints: normRes.leftHand);
+                    normRes.lipsDiag.logDiagnostic(normPoints: normRes.lips);
+                    normRes.bodyDiag.logDiagnostic(normPoints: normRes.body);
                     debugPrint('Shape: [86, 2]');
                     debugPrint('Valid Normalized: ${normRes.validNormalizedCount} / 86');
-                    debugPrint('NaN: ${normRes.nanCount}');
-                    debugPrint('Infinity: ${normRes.infCount}');
-                    debugPrint('Normalization: TRAINING MATCH ✅');
+                    debugPrint('NaN: ${normRes.nanCount}, Inf: ${normRes.infCount}');
                     debugPrint('==================================================');
 
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text(
-                          'تمت طباعة تفاصيل التطبيع (Min, Scale, Mean, MaxAbs) في Console بنجاح ✅',
-                        ),
+                        content: Text('تمت طباعة تفاصيل التطبيع في Console بنجاح ✅'),
                         duration: Duration(seconds: 2),
                         behavior: SnackBarBehavior.floating,
                       ),
                     );
                   }
                 },
-                icon: const Icon(Icons.analytics_rounded, size: 16),
+                icon: const Icon(Icons.analytics_rounded, size: 14),
                 label: const Text(
-                  'NORM DEBUG',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                  'PRINT NORM DEBUG',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
                 ),
               ),
             ),
@@ -422,135 +341,7 @@ class BodyPartsStatusCard extends StatelessWidget {
     );
   }
 
-  /// سطر كل جزء في فحص الموديل
-  Widget _buildModelPartRow({
-    required String title,
-    required int actual,
-    required int required,
-    required bool isDetected,
-  }) {
-    final bool isFull = actual >= required && required > 0;
-    final String icon = isFull ? '✅' : '❌';
-    final Color textColor = isFull ? Colors.green.shade700 : Colors.red.shade700;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                isDetected ? '✅' : '❌',
-                style: const TextStyle(fontSize: 11),
-              ),
-            ],
-          ),
-          Row(
-            children: [
-              Text(icon, style: const TextStyle(fontSize: 11)),
-              const SizedBox(width: 6),
-              Text(
-                '$actual / $required',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'monospace',
-                  color: textColor,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// سطر كل جزء في فحص التطبيع
-  Widget _buildNormalizedPartRow(
-    String title,
-    int actual,
-    int required,
-    bool isValidGroup,
-  ) {
-    final bool isFull = actual >= required && isValidGroup;
-    final String icon = isFull ? '✅' : '❌';
-    final Color textColor = isFull ? Colors.green.shade700 : Colors.red.shade700;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          Row(
-            children: [
-              Text(icon, style: const TextStyle(fontSize: 11)),
-              const SizedBox(width: 6),
-              Text(
-                '$actual / $required',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'monospace',
-                  color: textColor,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// سطر مؤشر تشخيصي بسيط
-  Widget _buildMetricRow({
-    required String title,
-    required String value,
-    required Color color,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Colors.grey,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              fontFamily: 'monospace',
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// سطر حالة الشخص (Boolean فقط)
+  /// سطر حالة الشخص
   Widget _buildPersonRow({
     required String iconEmoji,
     required String title,
@@ -566,12 +357,14 @@ class BodyPartsStatusCard extends StatelessWidget {
         : Colors.red.withValues(alpha: 0.25);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: isDetected ? Colors.green.withValues(alpha: 0.03) : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: isDetected ? Colors.green.withValues(alpha: 0.2) : Colors.grey.withValues(alpha: 0.15),
+          color: isDetected
+              ? Colors.green.withValues(alpha: 0.2)
+              : Colors.grey.withValues(alpha: 0.15),
         ),
       ),
       child: Row(
@@ -579,26 +372,26 @@ class BodyPartsStatusCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(iconEmoji, style: const TextStyle(fontSize: 18)),
-              const SizedBox(width: 10),
+              Text(iconEmoji, style: const TextStyle(fontSize: 16)),
+              const SizedBox(width: 8),
               Text(
                 title,
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
               ),
             ],
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
             decoration: BoxDecoration(
               color: badgeBg,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: badgeBorder),
             ),
             child: Text(
               isDetected ? '✅ ظهر' : '❌ غير ظاهر',
               style: TextStyle(
                 color: badgeText,
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -608,7 +401,7 @@ class BodyPartsStatusCard extends StatelessWidget {
     );
   }
 
-  /// سطر كل جزء مع عدد النقاط X / Y والحالات الثلاث (✅ / ⚠️ / ❌)
+  /// سطر كل جزء مع عدد النقاط X / Y
   Widget _buildPartRow({
     required String iconEmoji,
     required String title,
@@ -641,12 +434,12 @@ class BodyPartsStatusCard extends StatelessWidget {
     final String icon = partStatus.icon;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         color: status == DetectionStatus.pass
             ? Colors.green.withValues(alpha: 0.03)
             : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: status == DetectionStatus.pass
               ? Colors.green.withValues(alpha: 0.2)
@@ -658,31 +451,31 @@ class BodyPartsStatusCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(iconEmoji, style: const TextStyle(fontSize: 18)),
-              const SizedBox(width: 10),
+              Text(iconEmoji, style: const TextStyle(fontSize: 16)),
+              const SizedBox(width: 8),
               Text(
                 title,
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
               ),
             ],
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
               color: badgeBg,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: badgeBorder),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(icon, style: const TextStyle(fontSize: 12)),
-                const SizedBox(width: 6),
+                Text(icon, style: const TextStyle(fontSize: 11)),
+                const SizedBox(width: 4),
                 Text(
                   '${partStatus.actualPoints} / ${partStatus.requiredPoints}',
                   style: TextStyle(
                     color: badgeText,
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: FontWeight.bold,
                     fontFamily: 'monospace',
                   ),

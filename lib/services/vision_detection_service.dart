@@ -11,7 +11,10 @@ import 'package:hand_detection/hand_detection.dart' as hd;
 import 'package:ishara/keypoints/ishara_keypoint_mapper.dart';
 import 'package:ishara/keypoints/keypoint_normalizer.dart';
 import 'package:ishara/keypoints/keypoint_validator.dart';
+import 'package:ishara/ml/preprocessing/ishara_missing_point_handler.dart';
+import 'package:ishara/ml/preprocessing/ishara_model_input_validator.dart';
 import 'package:ishara/ml/preprocessing/ishara_normalizer.dart';
+import 'package:ishara/ml/preprocessing/ishara_training_normalizer.dart';
 import 'package:ishara/models/body_parts_detection_state.dart';
 
 /// موازن الحالة المعتمد على عدد الإطارات (Frame-based Stabilizer)
@@ -131,6 +134,7 @@ class VisionDetectionService {
 
   // المحول الرياضي الصارم المطابق لـ datasetv2.py
   final IsharaNormalizer _isharaNormalizer = IsharaNormalizer();
+  final IsharaMissingPointHandler _missingPointHandler = IsharaMissingPointHandler();
   DateTime? _lastDiagnosticLogTime;
 
   bool get isInitialized => _isInitialized;
@@ -582,6 +586,26 @@ class VisionDetectionService {
         timestamp: now,
       );
 
+      // ── خط المعالجة المنهجي المطابق لـ datasetv2.py (Missing -> Normalizer -> Validator) ──
+      // الخطوة 1: MissingPointHandler (إدارة الفقدان والتعويض وحساب Raw vs Imputed)
+      final preparedFrame = _missingPointHandler.handleFrame(
+        rawRightHand: rawRh,
+        rawLeftHand: rawLh,
+        rawLips: rawLips,
+        rawBody: rawBody,
+        timestamp: now,
+      );
+
+      // الخطوة 2: TrainingNormalizer (التطبيع التدريبي المستقل لكل مجموعة)
+      final trainingNormalizedOutput =
+          IsharaTrainingNormalizer.normalizePreparedFrame(preparedFrame);
+
+      // الخطوة 3: ModelInputValidator (الفحص الصارم لأبعاد المصفوفة وقيم NaN و Inf ومطابقة التطبيع)
+      final modelInputReport = IsharaModelInputValidator.validate(
+        preparedFrame: preparedFrame,
+        normalizedOutput: trainingNormalizedOutput,
+      );
+
       // Throttled Debug Logging (مرة كل 3 ثوانٍ في وضع Debug لمنع الـ Lag)
       if (kDebugMode &&
           (_lastDiagnosticLogTime == null ||
@@ -665,6 +689,7 @@ class VisionDetectionService {
         normalizedKeypointFrame: normalizedKeypointFrame,
         keypointValidation: keypointValidation,
         fullNormalizedResult: fullNormalizedResult,
+        modelInputReport: modelInputReport,
       );
     } catch (e) {
       debugPrint('[VisionDetectionService] Error processing frame: $e');
@@ -784,6 +809,7 @@ class VisionDetectionService {
     _prevRawKeypointFrame = null;
     _prevNormalizedKeypointFrame = null;
     _isharaNormalizer.reset();
+    _missingPointHandler.reset();
     _lastDiagnosticLogTime = null;
     _freezeCounter = 0;
   }

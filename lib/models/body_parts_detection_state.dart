@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:ishara/keypoints/ishara_keypoint_mapper.dart';
 import 'package:ishara/keypoints/keypoint_validator.dart';
+import 'package:ishara/ml/preprocessing/ishara_model_input_validator.dart';
 import 'package:ishara/ml/preprocessing/ishara_normalizer.dart';
 
 /// حالات الكشف الثلاث
@@ -138,6 +139,7 @@ class VisionLandmarksState {
   final KeypointFrame? normalizedKeypointFrame;
   final KeypointValidationResult? keypointValidation;
   final FullNormalizedFrameResult? fullNormalizedResult;
+  final ModelInputValidationReport? modelInputReport;
 
   const VisionLandmarksState({
     required this.personDetected,
@@ -175,6 +177,7 @@ class VisionLandmarksState {
     this.normalizedKeypointFrame,
     this.keypointValidation,
     this.fullNormalizedResult,
+    this.modelInputReport,
   });
 
   static const empty = VisionLandmarksState(
