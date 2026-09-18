@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:ishara/keypoints/ishara_keypoint_mapper.dart';
 import 'package:ishara/keypoints/keypoint_validator.dart';
 import 'package:ishara/ml/buffer/ishara_frame_ring_buffer.dart';
+import 'package:ishara/ml/model/ishara_tflite_service.dart';
 import 'package:ishara/ml/preprocessing/ishara_model_input_validator.dart';
 import 'package:ishara/ml/preprocessing/ishara_normalizer.dart';
 
@@ -142,6 +143,7 @@ class VisionLandmarksState {
   final FullNormalizedFrameResult? fullNormalizedResult;
   final ModelInputValidationReport? modelInputReport;
   final RingBufferStatus? ringBufferStatus;
+  final ModelPipelineStatus? modelPipelineStatus;
 
   const VisionLandmarksState({
     required this.personDetected,
@@ -181,6 +183,7 @@ class VisionLandmarksState {
     this.fullNormalizedResult,
     this.modelInputReport,
     this.ringBufferStatus,
+    this.modelPipelineStatus,
   });
 
   static const empty = VisionLandmarksState(

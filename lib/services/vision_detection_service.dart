@@ -12,6 +12,7 @@ import 'package:ishara/keypoints/ishara_keypoint_mapper.dart';
 import 'package:ishara/keypoints/keypoint_normalizer.dart';
 import 'package:ishara/keypoints/keypoint_validator.dart';
 import 'package:ishara/ml/buffer/ishara_frame_ring_buffer.dart';
+import 'package:ishara/ml/model/ishara_tflite_service.dart';
 import 'package:ishara/ml/preprocessing/ishara_missing_point_handler.dart';
 import 'package:ishara/ml/preprocessing/ishara_model_input_validator.dart';
 import 'package:ishara/ml/preprocessing/ishara_normalizer.dart';
@@ -137,10 +138,13 @@ class VisionDetectionService {
   final IsharaNormalizer _isharaNormalizer = IsharaNormalizer();
   final IsharaMissingPointHandler _missingPointHandler = IsharaMissingPointHandler();
   final IsharaFrameRingBuffer _ringBuffer = IsharaFrameRingBuffer();
+  final IsharaTfliteService _tfliteService = IsharaTfliteService();
+  bool _hasTriggeredFirstInference = false;
   DateTime? _lastDiagnosticLogTime;
 
   bool get isInitialized => _isInitialized;
   IsharaFrameRingBuffer get ringBuffer => _ringBuffer;
+  IsharaTfliteService get tfliteService => _tfliteService;
 
   /// تحويل إحداثيات كواشف ML Kit إلى إحداثيات Portrait موحدة ومطبعة [0..1]
   /// يعالج بدقة:
@@ -218,8 +222,11 @@ class VisionDetectionService {
         performanceConfig: hd.PerformanceConfig.xnnpack(numThreads: 2),
       );
 
+      // 4. تهيئة محرك TFLite وفحص مصفوفات الموديل الحقيقية [1, 128, 86, 2] -> [1, 29, 684]
+      await _tfliteService.initialize();
+
       _isInitialized = true;
-      debugPrint('[VisionDetectionService] ✅ Initialized all 3 Vision Detectors successfully.');
+      debugPrint('[VisionDetectionService] ✅ Initialized all 3 Vision Detectors + TFLite successfully.');
     } catch (e, stack) {
       _isInitialized = false;
       debugPrint('[VisionDetectionService] ❌ Initialization failed: $e\n$stack');
@@ -644,7 +651,14 @@ class VisionDetectionService {
         isTrainingMatch: !trainingNormalizedOutput.hasInvalidDenominator,
       );
 
+      // 8. تشغيل أول استنتاج تشخيصي آمن لمرة واحدة بمجرد اكتمال الـ 128 إطاراً
+      if (!_hasTriggeredFirstInference && _ringBuffer.isReady && _tfliteService.isReady) {
+        _hasTriggeredFirstInference = true;
+        unawaited(runModelInference());
+      }
+
       final ringBufferStatus = _ringBuffer.getStatus();
+      final modelPipelineStatus = _tfliteService.getStatus();
       final int landmarkAgeMs = DateTime.now().difference(now).inMilliseconds;
 
       return VisionLandmarksState(
@@ -705,6 +719,7 @@ class VisionDetectionService {
         fullNormalizedResult: fullNormalizedResult,
         modelInputReport: modelInputReport,
         ringBufferStatus: ringBufferStatus,
+        modelPipelineStatus: modelPipelineStatus,
       );
     } catch (e) {
       debugPrint('[VisionDetectionService] Error processing frame: $e');
@@ -829,10 +844,27 @@ class VisionDetectionService {
     _freezeCounter = 0;
   }
 
+  /// تشغيل استنتاج الموديل على مصفوفة الإدخال المتسلسلة [1, 128, 86, 2]
+  Future<InferenceResult?> runModelInference() async {
+    if (!_ringBuffer.isReady) {
+      debugPrint('[VisionDetectionService] Cannot run inference: Ring Buffer has ${_ringBuffer.count}/128 frames');
+      return null;
+    }
+
+    final inputSeq = _ringBuffer.buildModelInput(applyHandsBackwardFill: true);
+    if (inputSeq == null) {
+      debugPrint('[VisionDetectionService] buildModelInput returned null');
+      return null;
+    }
+
+    return await _tfliteService.runInference(inputSeq);
+  }
+
   Future<void> dispose() async {
     await _poseDetector?.close();
     await _faceMeshDetector?.close();
     await _handDetector?.dispose();
+    _tfliteService.dispose();
     _poseDetector = null;
     _faceMeshDetector = null;
     _handDetector = null;

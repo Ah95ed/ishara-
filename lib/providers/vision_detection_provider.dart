@@ -39,6 +39,12 @@ class VisionDetectionProvider extends ChangeNotifier {
     }
   }
 
+  /// تشغيل استنتاج يدوي/تشخيصي للموديل
+  Future<void> runModelInference() async {
+    await _service.runModelInference();
+    notifyListeners();
+  }
+
   void reset() {
     _service.reset();
     _state = VisionLandmarksState.empty;
