@@ -35,29 +35,36 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
         final report = state.modelInputReport;
 
         // الحسابات الأساسية لمدخل الموديل
-        final int rawDetected = report?.rawDetectedCount ?? state.totalModelPoints;
+        final int rawDetected =
+            report?.rawDetectedCount ?? state.totalModelPoints;
         final int modelArrayCount = report?.modelArrayCount ?? 86;
         final bool isRawFull = rawDetected >= 86;
-        final String normStatus = report?.normalizationStatus ??
-            (state.fullNormalizedResult?.isTrainingMatch == true ? 'MATCH' : 'MATCH');
+        final String normStatus =
+            report?.normalizationStatus ??
+            (state.fullNormalizedResult?.isTrainingMatch == true
+                ? 'MATCH'
+                : 'MATCH');
         final bool isNormMatch = normStatus == 'MATCH';
         final int imputedCount = report?.imputedCount ?? (86 - rawDetected);
-        final int nanInfCount = (report?.nanCount ?? 0) + (report?.infCount ?? 0);
+        final int nanInfCount =
+            (report?.nanCount ?? 0) + (report?.infCount ?? 0);
 
         // متغيرات الـ 128-Frame Ring Buffer
         final ringStatus = state.ringBufferStatus;
         final int bufferFrames = ringStatus?.frameCount ?? 0;
         final bool isBufferReady = ringStatus?.isReady ?? false;
-        final RingBufferState bufferState = ringStatus?.state ?? RingBufferState.empty;
+        final RingBufferState bufferState =
+            ringStatus?.state ?? RingBufferState.empty;
         final String bufferStateName = (!state.personDetected)
             ? 'BUFFER PAUSED — NO PERSON'
             : (bufferState == RingBufferState.ready
-                ? 'READY ✅'
-                : bufferState.displayName);
+                  ? 'READY ✅'
+                  : bufferState.displayName);
         final String latestFrameStr = ringStatus?.latestFrameSequenceId != null
             ? '#${ringStatus!.latestFrameSequenceId}'
             : 'None';
-        final int bufferNanInf = (ringStatus?.nanCount ?? 0) + (ringStatus?.infCount ?? 0);
+        final int bufferNanInf =
+            (ringStatus?.nanCount ?? 0) + (ringStatus?.infCount ?? 0);
         final int duplicateCount = ringStatus?.duplicateCount ?? 0;
 
         return Card(
@@ -79,7 +86,9 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                         Container(
                           padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.primaryContainer,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primaryContainer,
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Icon(
@@ -100,7 +109,10 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                       ],
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.grey.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(10),
@@ -127,6 +139,7 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                   value: '$rawDetected / 86',
                   icon: isRawFull ? '✅' : '❌',
                   isGood: isRawFull,
+                  forceLtr: true,
                 ),
                 const SizedBox(height: 6),
 
@@ -136,6 +149,7 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                   value: '$modelArrayCount / 86',
                   icon: '✅',
                   isGood: true,
+                  forceLtr: true,
                 ),
                 const SizedBox(height: 6),
 
@@ -155,6 +169,7 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                   icon: imputedCount == 0 ? '0' : '⚠️ $imputedCount',
                   isGood: imputedCount == 0,
                   showOnlyIconAsValue: true,
+                  forceLtr: true,
                 ),
                 const SizedBox(height: 6),
 
@@ -165,6 +180,7 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                   icon: nanInfCount == 0 ? '0 ✅' : '$nanInfCount ❌',
                   isGood: nanInfCount == 0,
                   showOnlyIconAsValue: true,
+                  forceLtr: true,
                 ),
 
                 const SizedBox(height: 14),
@@ -180,7 +196,9 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                         Container(
                           padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.secondaryContainer,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .secondaryContainer,
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Icon(
@@ -201,27 +219,32 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                       ],
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: isBufferReady
                             ? Colors.green.withValues(alpha: 0.15)
                             : (!state.personDetected
-                                ? Colors.orange.withValues(alpha: 0.15)
-                                : Colors.blue.withValues(alpha: 0.15)),
+                                  ? Colors.orange.withValues(alpha: 0.15)
+                                  : Colors.blue.withValues(alpha: 0.15)),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
                         isBufferReady
                             ? 'READY ✅'
-                            : (!state.personDetected ? 'PAUSED ⏸' : 'FILLING ⏳'),
+                            : (!state.personDetected
+                                  ? 'PAUSED ⏸'
+                                  : 'FILLING ⏳'),
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                           color: isBufferReady
                               ? Colors.green.shade800
                               : (!state.personDetected
-                                  ? Colors.orange.shade800
-                                  : Colors.blue.shade800),
+                                    ? Colors.orange.shade800
+                                    : Colors.blue.shade800),
                         ),
                       ),
                     ),
@@ -237,6 +260,7 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                   icon: isBufferReady ? '128 / 128 ✅' : '$bufferFrames / 128',
                   isGood: isBufferReady,
                   showOnlyIconAsValue: true,
+                  forceLtr: true,
                 ),
                 const SizedBox(height: 6),
 
@@ -257,6 +281,7 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                   icon: latestFrameStr,
                   isGood: true,
                   showOnlyIconAsValue: true,
+                  forceLtr: true,
                 ),
                 const SizedBox(height: 6),
 
@@ -267,16 +292,22 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                   icon: '[86, 2]',
                   isGood: true,
                   showOnlyIconAsValue: true,
+                  forceLtr: true,
                 ),
                 const SizedBox(height: 6),
 
                 // ── 5. Sequence Shape: [XX, 86, 2] ──
                 _buildCompactRow(
                   title: 'Sequence Shape',
-                  value: isBufferReady ? '[128, 86, 2] ✅' : '[$bufferFrames, 86, 2]',
-                  icon: isBufferReady ? '[128, 86, 2] ✅' : '[$bufferFrames, 86, 2]',
+                  value: isBufferReady
+                      ? '[128, 86, 2] ✅'
+                      : '[$bufferFrames, 86, 2]',
+                  icon: isBufferReady
+                      ? '[128, 86, 2] ✅'
+                      : '[$bufferFrames, 86, 2]',
                   isGood: isBufferReady,
                   showOnlyIconAsValue: true,
+                  forceLtr: true,
                 ),
                 const SizedBox(height: 6),
 
@@ -288,6 +319,7 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                     icon: '[1, 128, 86, 2] ✅',
                     isGood: true,
                     showOnlyIconAsValue: true,
+                    forceLtr: true,
                   ),
                   const SizedBox(height: 6),
                 ],
@@ -299,6 +331,7 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                   icon: bufferNanInf == 0 ? '0 ✅' : '$bufferNanInf ❌',
                   isGood: bufferNanInf == 0,
                   showOnlyIconAsValue: true,
+                  forceLtr: true,
                 ),
                 const SizedBox(height: 6),
 
@@ -306,9 +339,12 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                 _buildCompactRow(
                   title: 'Duplicates',
                   value: '$duplicateCount',
-                  icon: duplicateCount == 0 ? '0' : '$duplicateCount (rejected)',
+                  icon: duplicateCount == 0
+                      ? '0'
+                      : '$duplicateCount (rejected)',
                   isGood: duplicateCount == 0,
                   showOnlyIconAsValue: true,
+                  forceLtr: true,
                 ),
 
                 const SizedBox(height: 10),
@@ -371,8 +407,54 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
     required String icon,
     required bool isGood,
     bool showOnlyIconAsValue = false,
+    bool forceLtr = false,
   }) {
-    final Color textColor = isGood ? Colors.green.shade800 : Colors.red.shade800;
+    final Color textColor = isGood
+        ? Colors.green.shade800
+        : Colors.red.shade800;
+
+    Widget valueWidget = Row(
+      mainAxisSize: MainAxisSize.min,
+      textDirection: forceLtr ? TextDirection.ltr : null,
+      children: [
+        if (!showOnlyIconAsValue) ...[
+          Text(
+            value,
+            textDirection: forceLtr ? TextDirection.ltr : null,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'monospace',
+              color: textColor,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            icon,
+            textDirection: forceLtr ? TextDirection.ltr : null,
+            style: const TextStyle(fontSize: 12),
+          ),
+        ] else ...[
+          Text(
+            icon,
+            textDirection: forceLtr ? TextDirection.ltr : null,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'monospace',
+              color: textColor,
+            ),
+          ),
+        ],
+      ],
+    );
+
+    if (forceLtr) {
+      valueWidget = Directionality(
+        textDirection: TextDirection.ltr,
+        child: valueWidget,
+      );
+    }
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -385,43 +467,24 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
             color: Colors.black87,
           ),
         ),
-        Row(
-          children: [
-            if (!showOnlyIconAsValue) ...[
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'monospace',
-                  color: textColor,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(icon, style: const TextStyle(fontSize: 12)),
-            ] else ...[
-              Text(
-                icon,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'monospace',
-                  color: textColor,
-                ),
-              ),
-            ],
-          ],
-        ),
+        valueWidget,
       ],
     );
   }
 
   /// تفاصيل التشخيص القديمة المتاحة للعودة إليها عند الحاجة دون أي فقدان للكود
-  Widget _buildLegacyDetectionSection(BuildContext context, VisionLandmarksState state) {
+  Widget _buildLegacyDetectionSection(
+    BuildContext context,
+    VisionLandmarksState state,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildPersonRow(iconEmoji: '👤', title: 'الشخص', isDetected: state.personDetected),
+        _buildPersonRow(
+          iconEmoji: '👤',
+          title: 'الشخص',
+          isDetected: state.personDetected,
+        ),
         const SizedBox(height: 6),
         _buildPartRow(iconEmoji: '◉', title: 'الرأس', partStatus: state.head),
         const SizedBox(height: 6),
@@ -429,9 +492,17 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
         const SizedBox(height: 6),
         _buildPartRow(iconEmoji: '👄', title: 'الشفاه', partStatus: state.lips),
         const SizedBox(height: 6),
-        _buildPartRow(iconEmoji: '🤚', title: 'اليد اليمنى', partStatus: state.rightHand),
+        _buildPartRow(
+          iconEmoji: '🤚',
+          title: 'اليد اليمنى',
+          partStatus: state.rightHand,
+        ),
         const SizedBox(height: 6),
-        _buildPartRow(iconEmoji: '✋', title: 'اليد اليسرى', partStatus: state.leftHand),
+        _buildPartRow(
+          iconEmoji: '✋',
+          title: 'اليد اليسرى',
+          partStatus: state.leftHand,
+        ),
         const SizedBox(height: 12),
         const Divider(height: 1),
         const SizedBox(height: 10),
@@ -457,13 +528,38 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                 ),
               ),
               const SizedBox(height: 6),
-              _buildDebugCounterRow('Camera processed', '${state.ringBufferStatus?.totalFramesReceived ?? 0}'),
-              _buildDebugCounterRow('Added to buffer', '${state.ringBufferStatus?.totalFramesAdded ?? 0}'),
-              _buildDebugCounterRow('Skipped no person', '${state.ringBufferStatus?.totalFramesSkippedNoPerson ?? 0}'),
-              _buildDebugCounterRow('Duplicates rejected', '${state.ringBufferStatus?.duplicateFramesRejected ?? 0}'),
-              _buildDebugCounterRow('Invalid frames rejected', '${state.ringBufferStatus?.invalidFramesRejected ?? 0}'),
-              _buildDebugCounterRow('Oldest Frame ID', state.ringBufferStatus?.oldestFrameSequenceId != null ? '#${state.ringBufferStatus!.oldestFrameSequenceId}' : 'None'),
-              _buildDebugCounterRow('Newest Frame ID', state.ringBufferStatus?.latestFrameSequenceId != null ? '#${state.ringBufferStatus!.latestFrameSequenceId}' : 'None'),
+              _buildDebugCounterRow(
+                'Camera processed',
+                '${state.ringBufferStatus?.totalFramesReceived ?? 0}',
+              ),
+              _buildDebugCounterRow(
+                'Added to buffer',
+                '${state.ringBufferStatus?.totalFramesAdded ?? 0}',
+              ),
+              _buildDebugCounterRow(
+                'Skipped no person',
+                '${state.ringBufferStatus?.totalFramesSkippedNoPerson ?? 0}',
+              ),
+              _buildDebugCounterRow(
+                'Duplicates rejected',
+                '${state.ringBufferStatus?.duplicateFramesRejected ?? 0}',
+              ),
+              _buildDebugCounterRow(
+                'Invalid frames rejected',
+                '${state.ringBufferStatus?.invalidFramesRejected ?? 0}',
+              ),
+              _buildDebugCounterRow(
+                'Oldest Frame ID',
+                state.ringBufferStatus?.oldestFrameSequenceId != null
+                    ? '#${state.ringBufferStatus!.oldestFrameSequenceId}'
+                    : 'None',
+              ),
+              _buildDebugCounterRow(
+                'Newest Frame ID',
+                state.ringBufferStatus?.latestFrameSequenceId != null
+                    ? '#${state.ringBufferStatus!.latestFrameSequenceId}'
+                    : 'None',
+              ),
             ],
           ),
         ),
@@ -479,7 +575,9 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
               child: OutlinedButton.icon(
                 onPressed: () {
                   if (state.rawKeypointFrame != null) {
-                    IsharaKeypointMapper.dumpKeypointMap(state.rawKeypointFrame!);
+                    IsharaKeypointMapper.dumpKeypointMap(
+                      state.rawKeypointFrame!,
+                    );
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(
@@ -505,20 +603,34 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                 onPressed: () {
                   final normRes = state.fullNormalizedResult;
                   if (normRes != null) {
-                    debugPrint('==================================================');
+                    debugPrint(
+                      '==================================================',
+                    );
                     debugPrint('MANUAL NORMALIZATION DIAGNOSTIC TRIGGERED');
-                    normRes.rightHandDiag.logDiagnostic(normPoints: normRes.rightHand);
-                    normRes.leftHandDiag.logDiagnostic(normPoints: normRes.leftHand);
+                    normRes.rightHandDiag.logDiagnostic(
+                      normPoints: normRes.rightHand,
+                    );
+                    normRes.leftHandDiag.logDiagnostic(
+                      normPoints: normRes.leftHand,
+                    );
                     normRes.lipsDiag.logDiagnostic(normPoints: normRes.lips);
                     normRes.bodyDiag.logDiagnostic(normPoints: normRes.body);
                     debugPrint('Shape: [86, 2]');
-                    debugPrint('Valid Normalized: ${normRes.validNormalizedCount} / 86');
-                    debugPrint('NaN: ${normRes.nanCount}, Inf: ${normRes.infCount}');
-                    debugPrint('==================================================');
+                    debugPrint(
+                      'Valid Normalized: ${normRes.validNormalizedCount} / 86',
+                    );
+                    debugPrint(
+                      'NaN: ${normRes.nanCount}, Inf: ${normRes.infCount}',
+                    );
+                    debugPrint(
+                      '==================================================',
+                    );
 
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('تمت طباعة تفاصيل التطبيع في Console بنجاح ✅'),
+                        content: Text(
+                          'تمت طباعة تفاصيل التطبيع في Console بنجاح ✅',
+                        ),
                         duration: Duration(seconds: 2),
                         behavior: SnackBarBehavior.floating,
                       ),
@@ -548,7 +660,9 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
         ? Colors.green.withValues(alpha: 0.12)
         : Colors.red.withValues(alpha: 0.08);
 
-    final Color badgeText = isDetected ? Colors.green.shade700 : Colors.red.shade700;
+    final Color badgeText = isDetected
+        ? Colors.green.shade700
+        : Colors.red.shade700;
     final Color badgeBorder = isDetected
         ? Colors.green.withValues(alpha: 0.4)
         : Colors.red.withValues(alpha: 0.25);
@@ -556,7 +670,9 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: isDetected ? Colors.green.withValues(alpha: 0.03) : Colors.transparent,
+        color: isDetected
+            ? Colors.green.withValues(alpha: 0.03)
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: isDetected
@@ -573,7 +689,10 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
               const SizedBox(width: 8),
               Text(
                 title,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
@@ -652,7 +771,10 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
               const SizedBox(width: 8),
               Text(
                 title,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
@@ -693,17 +815,18 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
         children: [
           Text(
             label,
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.grey.shade700,
-            ),
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
           ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 11,
-              fontFamily: 'monospace',
-              fontWeight: FontWeight.bold,
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Text(
+              value,
+              textDirection: TextDirection.ltr,
+              style: const TextStyle(
+                fontSize: 11,
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ],
