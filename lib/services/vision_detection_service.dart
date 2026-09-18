@@ -11,6 +11,7 @@ import 'package:hand_detection/hand_detection.dart' as hd;
 import 'package:ishara/keypoints/ishara_keypoint_mapper.dart';
 import 'package:ishara/keypoints/keypoint_normalizer.dart';
 import 'package:ishara/keypoints/keypoint_validator.dart';
+import 'package:ishara/ml/buffer/ishara_frame_ring_buffer.dart';
 import 'package:ishara/ml/preprocessing/ishara_missing_point_handler.dart';
 import 'package:ishara/ml/preprocessing/ishara_model_input_validator.dart';
 import 'package:ishara/ml/preprocessing/ishara_normalizer.dart';
@@ -135,9 +136,11 @@ class VisionDetectionService {
   // المحول الرياضي الصارم المطابق لـ datasetv2.py
   final IsharaNormalizer _isharaNormalizer = IsharaNormalizer();
   final IsharaMissingPointHandler _missingPointHandler = IsharaMissingPointHandler();
+  final IsharaFrameRingBuffer _ringBuffer = IsharaFrameRingBuffer();
   DateTime? _lastDiagnosticLogTime;
 
   bool get isInitialized => _isInitialized;
+  IsharaFrameRingBuffer get ringBuffer => _ringBuffer;
 
   /// تحويل إحداثيات كواشف ML Kit إلى إحداثيات Portrait موحدة ومطبعة [0..1]
   /// يعالج بدقة:
@@ -631,6 +634,17 @@ class VisionDetectionService {
       final bool rightHandDetected = _rightHandStabilizer.update(actualRightHandPoints >= 10);
       final bool leftHandDetected = _leftHandStabilizer.update(actualLeftHandPoints >= 10);
 
+      // ── 7. تغذية الـ 128-Frame Ring Buffer للإدخال المتسلسل للموديل ──
+      _ringBuffer.addFrame(
+        normalizedPoints: trainingNormalizedOutput.all86NormalizedPoints,
+        timestamp: now,
+        personPresent: personDetected,
+        rawDetectedCount: preparedFrame.rawDetectedCount,
+        imputedCount: preparedFrame.imputedCount,
+        isTrainingMatch: !trainingNormalizedOutput.hasInvalidDenominator,
+      );
+
+      final ringBufferStatus = _ringBuffer.getStatus();
       final int landmarkAgeMs = DateTime.now().difference(now).inMilliseconds;
 
       return VisionLandmarksState(
@@ -690,6 +704,7 @@ class VisionDetectionService {
         keypointValidation: keypointValidation,
         fullNormalizedResult: fullNormalizedResult,
         modelInputReport: modelInputReport,
+        ringBufferStatus: ringBufferStatus,
       );
     } catch (e) {
       debugPrint('[VisionDetectionService] Error processing frame: $e');
