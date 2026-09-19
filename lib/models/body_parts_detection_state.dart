@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:ishara/keypoints/ishara_keypoint_mapper.dart';
 import 'package:ishara/keypoints/keypoint_validator.dart';
+import 'package:ishara/ml/analyzer/ishara_sequence_quality_analyzer.dart';
 import 'package:ishara/ml/buffer/ishara_frame_ring_buffer.dart';
 import 'package:ishara/ml/model/ishara_tflite_service.dart';
 import 'package:ishara/ml/preprocessing/ishara_model_input_validator.dart';
@@ -240,5 +241,8 @@ class VisionLandmarksState {
         return '❌';
     }
   }
+
+  /// تقرير جودة تسلسل الـ 128 إطاراً الحالية
+  SequenceQualityReport? get qualityReport => ringBufferStatus?.qualityReport;
 }
 

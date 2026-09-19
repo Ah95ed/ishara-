@@ -13,8 +13,8 @@ class ConfidenceWidget extends StatelessWidget {
     final color = confidence >= 0.8
         ? AppColors.success
         : confidence >= 0.5
-            ? AppColors.warning
-            : AppColors.error;
+        ? AppColors.warning
+        : AppColors.error;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -29,10 +29,7 @@ class ConfidenceWidget extends StatelessWidget {
           Container(
             width: 8,
             height: 8,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           const SizedBox(width: 8),
           Text(

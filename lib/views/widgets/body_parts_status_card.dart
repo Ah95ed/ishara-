@@ -7,17 +7,16 @@ import 'package:ishara/providers/vision_detection_provider.dart';
 import 'package:provider/provider.dart';
 
 /// BodyPartsStatusCard
-/// بطاقة خط أنابيب الموديل المحدثة (MODEL PIPELINE)
-/// تعرض افتراضياً اللوحة الصغيرة المطلوبة فقط:
+/// بطاقة تحليل جودة التسلسل (SEQUENCE QUALITY ANALYZER)
+/// تعرض في الوضع الطبيعي اللوحة المقتضبة المطلوبة فقط:
 /// - Buffer: 128/128 ✅
-/// - Model: LOADING / READY / ERROR
-/// - Input: [1, 128, 86, 2]
-/// - Output: [1, 29, 684]
-/// - Inference: XX ms
-/// - Output Valid: YES / NO
+/// - Quality: XX.X% (Metric: Raw Keypoint Coverage)
+/// - At least one hand: XX.X%
+/// - Imputed: XX.X%
+/// - Status: READY FOR REVIEW
+/// - زر: COPY QUALITY REPORT
 ///
 /// مع الاحتفاظ بكافة عناصر وتفاصيل التشخيص السابقة كاملةً خلف (showDeveloperDebug = false)
-/// لإمكانية إظهارها عند الرغبة دون أي تعارض أو إبطاء للشاشة.
 class BodyPartsStatusCard extends StatefulWidget {
   const BodyPartsStatusCard({super.key});
 
@@ -36,13 +35,23 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
         final state = visionProvider.state;
         final report = state.modelInputReport;
 
-        // ── بيانات الـ Ring Buffer ──
+        // ── بيانات الـ Ring Buffer وتقرير الجودة ──
         final ringStatus = state.ringBufferStatus;
+        final qualityReport = state.qualityReport ?? ringStatus?.qualityReport;
         final int bufferFrames = ringStatus?.frameCount ?? 0;
         final bool isBufferReady = ringStatus?.isReady ?? false;
-        final String bufferStr = isBufferReady ? '128 / 128' : '$bufferFrames / 128';
+        final String bufferStr = isBufferReady ? '128 / 128 ✅' : '$bufferFrames / 128';
 
-        // ── بيانات الـ TFLite Model Pipeline ──
+        final double qualityPercent = qualityReport?.rawCoveragePercent ?? 0.0;
+        final double atLeastOneHandPercent = qualityReport?.atLeastOneHandPercent ?? 0.0;
+        final double imputedPercent = qualityReport?.imputationPercent ?? 0.0;
+
+        final RingBufferState bufferState = ringStatus?.state ?? RingBufferState.empty;
+        final String statusStr = (!state.personDetected)
+            ? 'BUFFER PAUSED — NO PERSON'
+            : (isBufferReady ? 'READY FOR REVIEW ✅' : 'FILLING ($bufferFrames/128)');
+
+        // ── بيانات الـ TFLite Model Pipeline للـ Developer Debug ──
         final modelPipe = state.modelPipelineStatus;
         final ModelLoadState modelState = modelPipe?.state ?? ModelLoadState.notLoaded;
         final String modelStateStr = modelState == ModelLoadState.ready
@@ -52,9 +61,6 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                 : (modelState == ModelLoadState.error
                     ? 'ERROR ❌'
                     : 'NOT_LOADED'));
-
-        final String inputShapeStr = '[1, 128, 86, 2]';
-        final String outputShapeStr = '[1, 29, 684]';
 
         final String inferenceTimeStr = (modelPipe != null && modelPipe.lastInferenceTimeMs > 0)
             ? '${modelPipe.lastInferenceTimeMs} ms'
@@ -74,7 +80,6 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
         final int imputedCount = report?.imputedCount ?? (86 - rawDetected);
         final int nanInfCount = (report?.nanCount ?? 0) + (report?.infCount ?? 0);
 
-        final RingBufferState bufferState = ringStatus?.state ?? RingBufferState.empty;
         final String bufferStateName = (!state.personDetected)
             ? 'BUFFER PAUSED — NO PERSON'
             : (bufferState == RingBufferState.ready ? 'READY ✅' : bufferState.displayName);
@@ -94,7 +99,7 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // ── رأس البطاقة: MODEL PIPELINE + FPS ──
+                // ── رأس البطاقة: SEQUENCE QUALITY + FPS ──
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -107,14 +112,14 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Icon(
-                            Icons.psychology_rounded,
+                            Icons.analytics_rounded,
                             color: Theme.of(context).colorScheme.primary,
                             size: 18,
                           ),
                         ),
                         const SizedBox(width: 8),
                         const Text(
-                          'MODEL PIPELINE',
+                          'SEQUENCE QUALITY',
                           style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.bold,
@@ -149,83 +154,93 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                 _buildCompactRow(
                   title: 'Buffer',
                   value: bufferStr,
-                  icon: isBufferReady ? '128 / 128 ✅' : '$bufferFrames / 128',
+                  icon: bufferStr,
                   isGood: isBufferReady,
                   showOnlyIconAsValue: true,
                   forceLtr: true,
                 ),
                 const SizedBox(height: 6),
 
-                // ── 2. Model: LOADING / READY / ERROR ──
+                // ── 2. Quality: XX.X% (Raw Keypoint Coverage) ──
                 _buildCompactRow(
-                  title: 'Model',
-                  value: modelStateStr,
-                  icon: modelState == ModelLoadState.ready ? '$modelStateStr ✅' : modelStateStr,
-                  isGood: modelState == ModelLoadState.ready,
+                  title: 'Quality',
+                  value: '${qualityPercent.toStringAsFixed(1)} %',
+                  icon: '${qualityPercent.toStringAsFixed(1)} %',
+                  isGood: qualityPercent > 50,
                   showOnlyIconAsValue: true,
                   forceLtr: true,
                 ),
                 const SizedBox(height: 6),
 
-                // ── 3. Input: [1, 128, 86, 2] ──
+                // ── 3. At least one hand: XX.X% ──
                 _buildCompactRow(
-                  title: 'Input',
-                  value: inputShapeStr,
-                  icon: inputShapeStr,
-                  isGood: true,
+                  title: 'At least one hand',
+                  value: '${atLeastOneHandPercent.toStringAsFixed(1)} %',
+                  icon: '${atLeastOneHandPercent.toStringAsFixed(1)} %',
+                  isGood: atLeastOneHandPercent > 50,
                   showOnlyIconAsValue: true,
                   forceLtr: true,
                 ),
                 const SizedBox(height: 6),
 
-                // ── 4. Output: [1, 29, 684] ──
+                // ── 4. Imputed: XX.X% ──
                 _buildCompactRow(
-                  title: 'Output',
-                  value: outputShapeStr,
-                  icon: outputShapeStr,
-                  isGood: true,
+                  title: 'Imputed',
+                  value: '${imputedPercent.toStringAsFixed(1)} %',
+                  icon: '${imputedPercent.toStringAsFixed(1)} %',
+                  isGood: imputedPercent < 40,
                   showOnlyIconAsValue: true,
                   forceLtr: true,
                 ),
                 const SizedBox(height: 6),
 
-                // ── 5. Inference: XX ms ──
+                // ── 5. Status: READY FOR REVIEW ──
                 _buildCompactRow(
-                  title: 'Inference',
-                  value: inferenceTimeStr,
-                  icon: inferenceTimeStr,
-                  isGood: modelPipe != null && modelPipe.lastInferenceTimeMs > 0,
+                  title: 'Status',
+                  value: statusStr,
+                  icon: statusStr,
+                  isGood: isBufferReady,
                   showOnlyIconAsValue: true,
-                  forceLtr: true,
-                ),
-                const SizedBox(height: 6),
-
-                // ── 6. Output Valid: YES / NO ──
-                _buildCompactRow(
-                  title: 'Output Valid',
-                  value: outputValidStr,
-                  icon: outputValidStr == 'YES' ? 'YES ✅' : (outputValidStr == 'NO' ? 'NO ❌' : '--'),
-                  isGood: outputValidStr == 'YES',
-                  showOnlyIconAsValue: true,
-                  forceLtr: true,
+                  forceLtr: false,
                 ),
 
                 const SizedBox(height: 12),
 
-                // ── زر تشغيل الاستنتاج اليدوي / التشخيصي ──
+                // ── زر نسخ تقرير الجودة الشامل للحافظة (COPY QUALITY REPORT) ──
                 ElevatedButton.icon(
-                  onPressed: (!isBufferReady || modelState != ModelLoadState.ready)
-                      ? null
-                      : () async {
-                          await visionProvider.runModelInference();
-                        },
-                  icon: const Icon(Icons.play_arrow_rounded, size: 16),
-                  label: Text(
-                    isBufferReady ? 'RUN INFERENCE (تشغيل الاستنتاج)' : 'BUFFER FILLING (${bufferFrames}/128)...',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  onPressed: () async {
+                    await visionProvider.copySequenceQualityReport();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Row(
+                            children: [
+                              const Icon(Icons.check_circle_outline, color: Colors.white, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'تم نسخ تقرير جودة التسلسل ($bufferFrames/128) إلى الحافظة بنجاح!',
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ],
+                          ),
+                          backgroundColor: Colors.green.shade800,
+                          duration: const Duration(seconds: 3),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.copy_rounded, size: 16),
+                  label: const Text(
+                    'COPY QUALITY REPORT (نسخ تقرير الجودة)',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                   ),
                   style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
                 ),
@@ -274,13 +289,45 @@ class _BodyPartsStatusCardState extends State<BodyPartsStatusCard> {
                   const Divider(height: 1),
                   const SizedBox(height: 10),
 
-                  // ── قسم 1: تشخيص الموديل التفصيلي (MODEL IN-DEPTH DIAGNOSTIC) ──
+                  // ── قسم 1: تفاصيل جودة التسلسل (SEQUENCE QUALITY DETAILS) ──
+                  _buildSectionHeader('SEQUENCE QUALITY DETAILS (128-FRAME METRICS)'),
+                  const SizedBox(height: 6),
+                  _buildDebugCounterRow('Right Hand Coverage', '${qualityReport?.rhValidFrames ?? 0}/$bufferFrames (${qualityReport?.rhCoveragePercent.toStringAsFixed(1) ?? "0.0"}%)'),
+                  _buildDebugCounterRow('Left Hand Coverage', '${qualityReport?.lhValidFrames ?? 0}/$bufferFrames (${qualityReport?.lhCoveragePercent.toStringAsFixed(1) ?? "0.0"}%)'),
+                  _buildDebugCounterRow('Lips Coverage', '${qualityReport?.lipsValidFrames ?? 0}/$bufferFrames (${qualityReport?.lipsCoveragePercent.toStringAsFixed(1) ?? "0.0"}%)'),
+                  _buildDebugCounterRow('Body Coverage', '${qualityReport?.bodyValidFrames ?? 0}/$bufferFrames (${qualityReport?.bodyCoveragePercent.toStringAsFixed(1) ?? "0.0"}%)'),
+                  _buildDebugCounterRow('At least one hand', '${qualityReport?.atLeastOneHandFrames ?? 0}/$bufferFrames (${qualityReport?.atLeastOneHandPercent.toStringAsFixed(1) ?? "0.0"}%)'),
+                  _buildDebugCounterRow('Both hands', '${qualityReport?.bothHandsFrames ?? 0}/$bufferFrames (${qualityReport?.bothHandsPercent.toStringAsFixed(1) ?? "0.0"}%)'),
+                  _buildDebugCounterRow('No hands', '${qualityReport?.noHandsFrames ?? 0}/$bufferFrames (${qualityReport?.noHandsPercent.toStringAsFixed(1) ?? "0.0"}%)'),
+                  _buildDebugCounterRow('Full Raw Frames (86/86)', '${qualityReport?.fullRawFrames ?? 0}/$bufferFrames (${qualityReport?.fullRawPercent.toStringAsFixed(1) ?? "0.0"}%)'),
+                  _buildDebugCounterRow('RH Longest Missing', '${qualityReport?.rhLongestMissingRun ?? 0} frames'),
+                  _buildDebugCounterRow('LH Longest Missing', '${qualityReport?.lhLongestMissingRun ?? 0} frames'),
+                  _buildDebugCounterRow('Lips Longest Missing', '${qualityReport?.lipsLongestMissingRun ?? 0} frames'),
+                  _buildDebugCounterRow('Body Longest Missing', '${qualityReport?.bodyLongestMissingRun ?? 0} frames'),
+                  _buildDebugCounterRow('RH Initial Missing', '${qualityReport?.rhInitialMissing ?? 0} frames'),
+                  _buildDebugCounterRow('LH Initial Missing', '${qualityReport?.lhInitialMissing ?? 0} frames'),
+                  _buildDebugCounterRow('Lips Initial Missing', '${qualityReport?.lipsInitialMissing ?? 0} frames'),
+                  _buildDebugCounterRow('Body Initial Missing', '${qualityReport?.bodyInitialMissing ?? 0} frames'),
+                  _buildDebugCounterRow('NaN / Inf Count', '${qualityReport?.totalNanCount ?? 0} / ${qualityReport?.totalInfCount ?? 0}'),
+                  _buildDebugCounterRow('Duplicate Frames', '${qualityReport?.duplicateCount ?? 0}'),
+                  _buildDebugCounterRow('Chronological Order', qualityReport?.isChronologicalOrder == true ? 'PASS ✅' : 'FAIL ❌'),
+                  _buildDebugCounterRow('Avg Frame Interval', '${qualityReport?.averageFrameIntervalMs.round() ?? 0} ms'),
+                  _buildDebugCounterRow('Max Frame Gap', '${qualityReport?.maxFrameGapMs.round() ?? 0} ms'),
+
+                  const SizedBox(height: 12),
+                  const Divider(height: 1),
+                  const SizedBox(height: 10),
+
+                  // ── قسم 2: تشخيص الموديل التفصيلي (MODEL IN-DEPTH DIAGNOSTIC) ──
                   _buildSectionHeader('MODEL IN-DEPTH DIAGNOSTICS'),
                   const SizedBox(height: 6),
+                  _buildDebugCounterRow('Model State', modelStateStr),
                   _buildDebugCounterRow('Model File', 'assets/models/ishara_model.tflite'),
                   _buildDebugCounterRow('Model Size', '${modelPipe?.modelSizeMb.toStringAsFixed(2) ?? "107.55"} MB'),
                   _buildDebugCounterRow('Input Tensor', '${modelPipe?.inputDtype ?? "float32"} ${modelPipe?.inputShape ?? "[1, 128, 86, 2]"}'),
                   _buildDebugCounterRow('Output Tensor', '${modelPipe?.outputDtype ?? "float32"} ${modelPipe?.outputShape ?? "[1, 29, 684]"}'),
+                  _buildDebugCounterRow('Inference Time', inferenceTimeStr),
+                  _buildDebugCounterRow('Output Valid', outputValidStr),
                   _buildDebugCounterRow('Total Inferences', '${modelPipe?.totalInferenceCount ?? 0}'),
                   _buildDebugCounterRow('Output Responsive', modelPipe != null && modelPipe.isResponsive ? 'YES ✅ (Changing)' : 'NO ⚠️ (Static)'),
                   if (modelPipe?.lastErrorCode != null)

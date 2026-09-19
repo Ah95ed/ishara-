@@ -11,6 +11,7 @@ import 'package:hand_detection/hand_detection.dart' as hd;
 import 'package:ishara/keypoints/ishara_keypoint_mapper.dart';
 import 'package:ishara/keypoints/keypoint_normalizer.dart';
 import 'package:ishara/keypoints/keypoint_validator.dart';
+import 'package:ishara/ml/analyzer/ishara_sequence_quality_analyzer.dart';
 import 'package:ishara/ml/buffer/ishara_frame_ring_buffer.dart';
 import 'package:ishara/ml/model/ishara_tflite_service.dart';
 import 'package:ishara/ml/preprocessing/ishara_missing_point_handler.dart';
@@ -139,7 +140,6 @@ class VisionDetectionService {
   final IsharaMissingPointHandler _missingPointHandler = IsharaMissingPointHandler();
   final IsharaFrameRingBuffer _ringBuffer = IsharaFrameRingBuffer();
   final IsharaTfliteService _tfliteService = IsharaTfliteService();
-  bool _hasTriggeredFirstInference = false;
   DateTime? _lastDiagnosticLogTime;
 
   bool get isInitialized => _isInitialized;
@@ -641,7 +641,24 @@ class VisionDetectionService {
       final bool rightHandDetected = _rightHandStabilizer.update(actualRightHandPoints >= 10);
       final bool leftHandDetected = _leftHandStabilizer.update(actualLeftHandPoints >= 10);
 
-      // ── 7. تغذية الـ 128-Frame Ring Buffer للإدخال المتسلسل للموديل ──
+      // ── 7. تغذية الـ 128-Frame Ring Buffer مع بيانات الجودة الوصفية الكاملة ──
+      final frameMeta = FrameMetadata(
+        frameId: _cameraFrameCount,
+        timestamp: now,
+        rightHandRawCount: rawRh != null ? 21 : 0,
+        leftHandRawCount: rawLh != null ? 21 : 0,
+        lipsRawCount: rawLips != null ? 19 : 0,
+        bodyRawCount: rawBody != null ? 25 : 0,
+        rawValidPoints: preparedFrame.rawDetectedCount,
+        imputedPoints: preparedFrame.imputedCount,
+        nanCount: modelInputReport.nanCount,
+        infCount: modelInputReport.infCount,
+        rightHandImputed: preparedFrame.rightHandImputed,
+        leftHandImputed: preparedFrame.leftHandImputed,
+        lipsImputed: preparedFrame.lipsImputed,
+        bodyImputed: preparedFrame.bodyImputed,
+      );
+
       _ringBuffer.addFrame(
         normalizedPoints: trainingNormalizedOutput.all86NormalizedPoints,
         timestamp: now,
@@ -649,14 +666,10 @@ class VisionDetectionService {
         rawDetectedCount: preparedFrame.rawDetectedCount,
         imputedCount: preparedFrame.imputedCount,
         isTrainingMatch: !trainingNormalizedOutput.hasInvalidDenominator,
+        metadata: frameMeta,
       );
 
-      // 8. تشغيل أول استنتاج تشخيصي آمن لمرة واحدة بمجرد اكتمال الـ 128 إطاراً
-      if (!_hasTriggeredFirstInference && _ringBuffer.isReady && _tfliteService.isReady) {
-        _hasTriggeredFirstInference = true;
-        unawaited(runModelInference());
-      }
-
+      // ملاحظة: التشغيل التلقائي للاستنتاج معطل التزاماً بمرحلة قياس جودة التسلسل (Sequence Quality Analyzer)
       final ringBufferStatus = _ringBuffer.getStatus();
       final modelPipelineStatus = _tfliteService.getStatus();
       final int landmarkAgeMs = DateTime.now().difference(now).inMilliseconds;
@@ -844,7 +857,7 @@ class VisionDetectionService {
     _freezeCounter = 0;
   }
 
-  /// تشغيل استنتاج الموديل على مصفوفة الإدخال المتسلسلة [1, 128, 86, 2]
+  /// تشغيل استنتاج الموديل على مصفوفة الإدخال المتسلسلة [1, 128, 86, 2] (يدوياً فقط)
   Future<InferenceResult?> runModelInference() async {
     if (!_ringBuffer.isReady) {
       debugPrint('[VisionDetectionService] Cannot run inference: Ring Buffer has ${_ringBuffer.count}/128 frames');
@@ -858,6 +871,19 @@ class VisionDetectionService {
     }
 
     return await _tfliteService.runInference(inputSeq);
+  }
+
+  /// الحصول على تقرير جودة التسلسل لآخر 128 إطاراً
+  SequenceQualityReport getSequenceQualityReport() {
+    return _ringBuffer.analyzeCurrentSequence();
+  }
+
+  /// نسخ تقرير جودة التسلسل إلى الحافظة
+  Future<String> copySequenceQualityReport() async {
+    final report = getSequenceQualityReport();
+    final text = report.toClipboardReportText();
+    await Clipboard.setData(ClipboardData(text: text));
+    return text;
   }
 
   Future<void> dispose() async {

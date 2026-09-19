@@ -45,6 +45,13 @@ class VisionDetectionProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// نسخ تقرير جودة التسلسل إلى الحافظة
+  Future<String> copySequenceQualityReport() async {
+    final text = await _service.copySequenceQualityReport();
+    notifyListeners();
+    return text;
+  }
+
   void reset() {
     _service.reset();
     _state = VisionLandmarksState.empty;

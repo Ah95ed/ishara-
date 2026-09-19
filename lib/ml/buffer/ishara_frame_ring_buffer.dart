@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:ishara/ml/analyzer/ishara_sequence_quality_analyzer.dart';
 import 'package:ishara/ml/buffer/ishara_buffer_validator.dart';
 import 'package:ishara/ml/preprocessing/ishara_normalizer.dart';
 
@@ -33,6 +34,7 @@ class IsharaBufferFrame {
   final int rawDetectedCount;
   final int imputedCount;
   final bool isTrainingMatch;
+  final FrameMetadata metadata;
 
   IsharaBufferFrame({
     required this.sequenceId,
@@ -41,7 +43,15 @@ class IsharaBufferFrame {
     required this.rawDetectedCount,
     required this.imputedCount,
     required this.isTrainingMatch,
-  }) : data = Float32List.fromList(data); // Deep copy إلزامي لمنع أي مشاركة مرجعية
+    FrameMetadata? metadata,
+  })  : data = Float32List.fromList(data),
+        metadata = metadata ??
+            FrameMetadata.fromCounts(
+              frameId: sequenceId,
+              timestamp: timestamp,
+              rawDetectedCount: rawDetectedCount,
+              imputedCount: imputedCount,
+            );
 
   /// استنساخ عميق إضافي
   IsharaBufferFrame clone() {
@@ -52,6 +62,7 @@ class IsharaBufferFrame {
       rawDetectedCount: rawDetectedCount,
       imputedCount: imputedCount,
       isTrainingMatch: isTrainingMatch,
+      metadata: metadata,
     );
   }
 
@@ -122,6 +133,7 @@ class RingBufferStatus {
   final int invalidFramesRejected;
   final bool isReady;
   final String stateDisplayName;
+  final SequenceQualityReport? qualityReport;
 
   const RingBufferStatus({
     required this.frameCount,
@@ -142,6 +154,7 @@ class RingBufferStatus {
     required this.invalidFramesRejected,
     required this.isReady,
     required this.stateDisplayName,
+    this.qualityReport,
   });
 }
 
@@ -179,6 +192,10 @@ class IsharaFrameRingBuffer {
   int _duplicateFramesRejected = 0;
   int _invalidFramesRejected = 0;
 
+  // ── كاش تقرير الجودة لمنع تكرار الحساب على كل Frame ──
+  SequenceQualityReport? _cachedQualityReport;
+  DateTime? _lastQualityReportTime;
+
   // Getters للعدادات
   int get count => _count;
   bool get isReady => _count == capacity;
@@ -210,6 +227,14 @@ class IsharaFrameRingBuffer {
     int rawDetectedCount = 86,
     int imputedCount = 0,
     bool isTrainingMatch = true,
+    FrameMetadata? metadata,
+    int? frameId,
+    int? rightHandRawCount,
+    int? leftHandRawCount,
+    int? lipsRawCount,
+    int? bodyRawCount,
+    int? nanCount,
+    int? infCount,
   }) {
     // 1. قفل الأمان لمنع تداخل عمليات الإضافة المتزامنة
     if (_isAddingFrame) return false;
@@ -247,6 +272,20 @@ class IsharaFrameRingBuffer {
 
       _sequenceCounter++;
 
+      final frameMeta = metadata ??
+          FrameMetadata(
+            frameId: frameId ?? _sequenceCounter,
+            timestamp: timestamp,
+            rightHandRawCount: rightHandRawCount ?? (rawDetectedCount >= 21 ? 21 : 0),
+            leftHandRawCount: leftHandRawCount ?? (rawDetectedCount >= 42 ? 21 : 0),
+            lipsRawCount: lipsRawCount ?? (rawDetectedCount >= 61 ? 19 : 0),
+            bodyRawCount: bodyRawCount ?? (rawDetectedCount >= 86 ? 25 : 0),
+            rawValidPoints: rawDetectedCount,
+            imputedPoints: imputedCount,
+            nanCount: nanCount ?? 0,
+            infCount: infCount ?? 0,
+          );
+
       final newFrame = IsharaBufferFrame(
         sequenceId: _sequenceCounter,
         timestamp: timestamp,
@@ -254,6 +293,7 @@ class IsharaFrameRingBuffer {
         rawDetectedCount: rawDetectedCount,
         imputedCount: imputedCount,
         isTrainingMatch: isTrainingMatch,
+        metadata: frameMeta,
       );
 
       // 6. الكتابة داخل المؤشر الدائري
@@ -397,8 +437,22 @@ class IsharaFrameRingBuffer {
     );
   }
 
-  /// الحصول على تقرير الحالة اللحظي للـ Buffer
-  RingBufferStatus getStatus() {
+  /// تحليل التسلسل الحالي واستخراج تقرير الجودة الشامل
+  SequenceQualityReport analyzeCurrentSequence({DateTime? captureTime}) {
+    final frames = getChronologicalFrames();
+    final metadataList = frames.map((f) => f.metadata).toList();
+    final report = IsharaSequenceQualityAnalyzer.analyzeFrames(
+      metadataList: metadataList,
+      capacity: capacity,
+      captureTime: captureTime,
+    );
+    _cachedQualityReport = report;
+    _lastQualityReportTime = captureTime ?? DateTime.now();
+    return report;
+  }
+
+  /// الحصول على تقرير الحالة اللحظي للـ Buffer مع إمكانية تحديث تقرير الجودة
+  RingBufferStatus getStatus({bool refreshQuality = false}) {
     final frames = getChronologicalFrames();
     final currentState = state;
 
@@ -410,6 +464,15 @@ class IsharaFrameRingBuffer {
       final counts = IsharaBufferValidator.countNanAndInf(latest);
       nanCount = counts.nanCount;
       infCount = counts.infCount;
+
+      // تحديث تقرير الجودة دورياً (مرة كل 350ms أو عند الطلب) لمنع أي تأثير على الـ FPS
+      final now = DateTime.now();
+      if (refreshQuality ||
+          _cachedQualityReport == null ||
+          _lastQualityReportTime == null ||
+          now.difference(_lastQualityReportTime!).inMilliseconds >= 350) {
+        analyzeCurrentSequence(captureTime: now);
+      }
     }
 
     return RingBufferStatus(
@@ -431,6 +494,7 @@ class IsharaFrameRingBuffer {
       invalidFramesRejected: _invalidFramesRejected,
       isReady: _count == capacity,
       stateDisplayName: currentState.displayName,
+      qualityReport: _cachedQualityReport,
     );
   }
 
