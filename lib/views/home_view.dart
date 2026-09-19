@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:ishara/constants/app_constants.dart';
 import 'package:ishara/controllers/camera_controller.dart';
 import 'package:ishara/providers/vision_detection_provider.dart';
+import 'package:ishara/views/screens/model_diagnostics_page.dart';
 import 'package:ishara/views/widgets/body_parts_status_card.dart';
 import 'package:ishara/views/widgets/camera_preview_widget.dart';
 import 'package:provider/provider.dart';
@@ -95,6 +96,18 @@ class _HomeViewState extends State<HomeView> {
           ],
         ),
         actions: [
+          IconButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ModelDiagnosticsPage(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.analytics_outlined),
+            tooltip: 'فحص الموديل',
+          ),
           Consumer<CameraProvider>(
             builder: (context, cameraProvider, _) {
               return IconButton(
@@ -143,6 +156,26 @@ class _HomeViewState extends State<HomeView> {
           _buildCameraSection(context),
           const SizedBox(height: 16),
           const BodyPartsStatusCard(),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ModelDiagnosticsPage(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.psychology_rounded, size: 18),
+            label: const Text(
+              'فحص الموديل (Model Diagnostics)',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
           const SizedBox(height: 20),
         ],
       ),
@@ -166,10 +199,35 @@ class _HomeViewState extends State<HomeView> {
             ),
           ),
           const SizedBox(width: 20),
-          const Expanded(
+          Expanded(
             flex: 4,
             child: SingleChildScrollView(
-              child: BodyPartsStatusCard(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const BodyPartsStatusCard(),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const ModelDiagnosticsPage(),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.psychology_rounded, size: 18),
+                    label: const Text(
+                      'فحص الموديل (Model Diagnostics)',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
