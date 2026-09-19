@@ -19,6 +19,7 @@ import 'package:ishara/ml/preprocessing/ishara_model_input_validator.dart';
 import 'package:ishara/ml/preprocessing/ishara_normalizer.dart';
 import 'package:ishara/ml/preprocessing/ishara_training_normalizer.dart';
 import 'package:ishara/models/body_parts_detection_state.dart';
+import 'package:ishara/services/real_inference_test_service.dart';
 
 /// موازن الحالة المعتمد على عدد الإطارات (Frame-based Stabilizer)
 /// يمنع التذبذب السريع بدون أي تأخير زمني مصطنع.
@@ -140,11 +141,13 @@ class VisionDetectionService {
   final IsharaMissingPointHandler _missingPointHandler = IsharaMissingPointHandler();
   final IsharaFrameRingBuffer _ringBuffer = IsharaFrameRingBuffer();
   final IsharaTfliteService _tfliteService = IsharaTfliteService();
+  late final RealInferenceTestService _realInferenceTestService = RealInferenceTestService(this);
   DateTime? _lastDiagnosticLogTime;
 
   bool get isInitialized => _isInitialized;
   IsharaFrameRingBuffer get ringBuffer => _ringBuffer;
   IsharaTfliteService get tfliteService => _tfliteService;
+  RealInferenceTestService get realInferenceTestService => _realInferenceTestService;
 
   /// تحويل إحداثيات كواشف ML Kit إلى إحداثيات Portrait موحدة ومطبعة [0..1]
   /// يعالج بدقة:

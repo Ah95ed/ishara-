@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:ishara/ml/buffer/ishara_frame_ring_buffer.dart';
@@ -54,6 +55,68 @@ class InferenceResult {
     this.errorCode,
     this.errorMessage,
   });
+}
+
+/// مخرجات الاستنتاج الحقيقي الخام [1, 29, 684] مع الإحصائيات الكاملة
+class RawRealInferenceOutput {
+  final bool isSuccess;
+  final int inferenceTimeMs;
+  final List<int> outputShape; // [1, 29, 684]
+  final int nanCount;
+  final int infCount;
+  final double outputMin;
+  final double outputMax;
+  final double outputMean;
+  final double outputStdDev;
+  final List<int> rawArgmax; // 29 integers
+  final List<int> uniqueClasses;
+  final int blankTop1Count;
+  final Float32List flatOutput; // 19,836 floats
+  final String? errorCode;
+  final String? errorMessage;
+
+  const RawRealInferenceOutput({
+    required this.isSuccess,
+    required this.inferenceTimeMs,
+    required this.outputShape,
+    required this.nanCount,
+    required this.infCount,
+    required this.outputMin,
+    required this.outputMax,
+    required this.outputMean,
+    required this.outputStdDev,
+    required this.rawArgmax,
+    required this.uniqueClasses,
+    required this.blankTop1Count,
+    required this.flatOutput,
+    this.errorCode,
+    this.errorMessage,
+  });
+
+  factory RawRealInferenceOutput.failure({
+    required String errorCode,
+    required String errorMessage,
+    int inferenceTimeMs = 0,
+    List<int> outputShape = const [1, 29, 684],
+  }) {
+    return RawRealInferenceOutput(
+      isSuccess: false,
+      inferenceTimeMs: inferenceTimeMs,
+      outputShape: outputShape,
+      nanCount: 0,
+      infCount: 0,
+      outputMin: 0.0,
+      outputMax: 0.0,
+      outputMean: 0.0,
+      outputStdDev: 0.0,
+      rawArgmax: const [],
+      uniqueClasses: const [],
+      blankTop1Count: 0,
+      flatOutput: Float32List(0),
+      errorCode: errorCode,
+      errorMessage: errorMessage,
+    );
+  }
 }
 
 /// تقرير حالة الموديل للواجهة والتشخيص
@@ -359,6 +422,164 @@ class IsharaTfliteService {
       _lastErrorMessage = 'Interpreter run failed: $e';
       debugPrint('[IsharaTfliteService] ❌ Inference exception: $e');
       return null;
+    } finally {
+      _isInferenceRunning = false;
+    }
+  }
+
+  /// تشغيل استنتاج تسلسل حقيقي على الـ Interpreter المشترك مع استخراج كافة الإحصائيات الخام
+  Future<RawRealInferenceOutput> runRealSequenceInference(ModelInputSequence inputSequence) async {
+    if (_interpreter == null || _state != ModelLoadState.ready) {
+      return RawRealInferenceOutput.failure(
+        errorCode: 'E_INTERPRETER_NOT_READY',
+        errorMessage: 'Interpreter is not initialized or ready',
+      );
+    }
+
+    if (_isInferenceRunning) {
+      return RawRealInferenceOutput.failure(
+        errorCode: 'E_INFERENCE_CONCURRENCY',
+        errorMessage: 'Another inference is currently running',
+      );
+    }
+    _isInferenceRunning = true;
+
+    try {
+      // 1. التحقق الصارم من سلامة المدخلات
+      if (inputSequence.nanCount > 0) {
+        return RawRealInferenceOutput.failure(
+          errorCode: 'E_REAL_INPUT_NAN',
+          errorMessage: 'Input contains ${inputSequence.nanCount} NaN values',
+        );
+      }
+      if (inputSequence.infCount > 0) {
+        return RawRealInferenceOutput.failure(
+          errorCode: 'E_REAL_INPUT_INF',
+          errorMessage: 'Input contains ${inputSequence.infCount} Infinity values',
+        );
+      }
+      if (!listEquals(inputSequence.shape, IsharaModelValidator.expectedInputShape)) {
+        return RawRealInferenceOutput.failure(
+          errorCode: 'E_REAL_INPUT_SHAPE',
+          errorMessage: 'Input shape must be ${IsharaModelValidator.expectedInputShape}, got ${inputSequence.shape}',
+        );
+      }
+
+      // 2. تحويل التسلسل إلى مصفوفة متداخلة [1, 128, 86, 2]
+      final inputTensor = inputSequence.toNestedTensor();
+
+      // 3. حجز مصفوفة المخرجات [1, 29, 684]
+      final outputTensor = List.generate(
+        1,
+        (_) => List.generate(
+          29,
+          (_) => List<double>.filled(684, 0.0),
+        ),
+      );
+
+      // 4. قياس زمن الاستنتاج بالـ Stopwatch
+      final stopwatch = Stopwatch()..start();
+      _interpreter!.run(inputTensor, outputTensor);
+      stopwatch.stop();
+      final elapsedMs = stopwatch.elapsedMilliseconds;
+      _lastInferenceTimeMs = elapsedMs;
+      _totalInferenceCount++;
+
+      // 5. استخراج الإحصائيات والمصفوفة المسطحة وخلوها من NaN/Inf
+      final flatOutput = Float32List(29 * 684);
+      final List<int> argmaxIds = [];
+      int nanCount = 0;
+      int infCount = 0;
+      double minVal = double.infinity;
+      double maxVal = -double.infinity;
+      double sumVal = 0.0;
+
+      int flatIdx = 0;
+      for (int t = 0; t < 29; t++) {
+        final row = outputTensor[0][t];
+        int bestClass = 0;
+        double bestScore = -double.infinity;
+
+        for (int c = 0; c < 684; c++) {
+          final val = row[c];
+          flatOutput[flatIdx++] = val;
+
+          if (val.isNaN) {
+            nanCount++;
+          } else if (val.isInfinite) {
+            infCount++;
+          } else {
+            if (val < minVal) minVal = val;
+            if (val > maxVal) maxVal = val;
+            sumVal += val;
+          }
+
+          if (val > bestScore) {
+            bestScore = val;
+            bestClass = c;
+          }
+        }
+        argmaxIds.add(bestClass);
+      }
+
+      // حساب Mean و Standard Deviation
+      final totalFloats = 29 * 684;
+      final meanVal = totalFloats > 0 ? (sumVal / totalFloats) : 0.0;
+      double sumSquaredDiff = 0.0;
+      for (int i = 0; i < totalFloats; i++) {
+        final v = flatOutput[i];
+        if (!v.isNaN && !v.isInfinite) {
+          final d = v - meanVal;
+          sumSquaredDiff += d * d;
+        }
+      }
+      final stdDevVal = totalFloats > 0 ? math.sqrt(sumSquaredDiff / totalFloats) : 0.0;
+
+      // الفئات الفريدة وعدد الفئة صفر
+      final uniqueClasses = argmaxIds.toSet().toList()..sort();
+      final blankTop1Count = argmaxIds.where((id) => id == 0).length;
+
+      if (nanCount > 0) {
+        return RawRealInferenceOutput.failure(
+          errorCode: 'E_REAL_OUTPUT_NAN',
+          errorMessage: 'Output contains $nanCount NaN values',
+          inferenceTimeMs: elapsedMs,
+        );
+      }
+      if (infCount > 0) {
+        return RawRealInferenceOutput.failure(
+          errorCode: 'E_REAL_OUTPUT_INF',
+          errorMessage: 'Output contains $infCount Infinity values',
+          inferenceTimeMs: elapsedMs,
+        );
+      }
+
+      _isLastOutputValid = true;
+      _lastArgmaxIds = argmaxIds;
+
+      return RawRealInferenceOutput(
+        isSuccess: true,
+        inferenceTimeMs: elapsedMs,
+        outputShape: const [1, 29, 684],
+        nanCount: 0,
+        infCount: 0,
+        outputMin: minVal.isInfinite ? 0.0 : minVal,
+        outputMax: maxVal.isInfinite ? 0.0 : maxVal,
+        outputMean: meanVal,
+        outputStdDev: stdDevVal,
+        rawArgmax: argmaxIds,
+        uniqueClasses: uniqueClasses,
+        blankTop1Count: blankTop1Count,
+        flatOutput: flatOutput,
+      );
+    } catch (e) {
+      _isLastOutputValid = false;
+      _lastErrorCode = 'E_INFERENCE_FAILED';
+      _lastErrorMessage = 'Real sequence inference failed: $e';
+      return RawRealInferenceOutput.failure(
+        errorCode: 'E_INFERENCE_FAILED',
+        errorMessage: 'Real sequence inference failed: $e',
+      );
     } finally {
       _isInferenceRunning = false;
     }

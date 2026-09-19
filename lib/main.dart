@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:ishara/constants/app_constants.dart';
 import 'package:ishara/controllers/camera_controller.dart';
+import 'package:ishara/controllers/ishara_test_controller.dart';
 import 'package:ishara/models/camera_state_model.dart';
 import 'package:ishara/providers/vision_detection_provider.dart';
 import 'package:ishara/services/camera_service.dart';
@@ -27,6 +28,7 @@ class _IsharaAppState extends State<IsharaApp> {
   late final HandDetectionService _handDetectionService;
   late final VisionDetectionService _visionDetectionService;
   late final VisionDetectionProvider _visionDetectionProvider;
+  late final IsharaTestController _isharaTestController;
 
   @override
   void initState() {
@@ -35,6 +37,7 @@ class _IsharaAppState extends State<IsharaApp> {
     _handDetectionService = HandDetectionService();
     _visionDetectionService = VisionDetectionService();
     _visionDetectionProvider = VisionDetectionProvider(_visionDetectionService);
+    _isharaTestController = IsharaTestController(_visionDetectionService);
 
     _initializeServices();
   }
@@ -55,6 +58,7 @@ class _IsharaAppState extends State<IsharaApp> {
 
   @override
   void dispose() {
+    _isharaTestController.dispose();
     _visionDetectionProvider.dispose();
     _handDetectionService.dispose();
     _cameraService.dispose();
@@ -70,6 +74,7 @@ class _IsharaAppState extends State<IsharaApp> {
           create: (_) => CameraProvider(_cameraService, _handDetectionService),
         ),
         ChangeNotifierProvider.value(value: _visionDetectionProvider),
+        ChangeNotifierProvider.value(value: _isharaTestController),
       ],
       child: MaterialApp(
         title: AppConstants.appName,

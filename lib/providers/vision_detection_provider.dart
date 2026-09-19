@@ -2,6 +2,8 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:ishara/models/body_parts_detection_state.dart';
+import 'package:ishara/models/real_inference_result.dart';
+import 'package:ishara/services/real_inference_test_service.dart';
 import 'package:ishara/services/vision_detection_service.dart';
 
 /// VisionDetectionProvider
@@ -14,6 +16,7 @@ class VisionDetectionProvider extends ChangeNotifier {
 
   VisionLandmarksState get state => _state;
   bool get isInitialized => _service.isInitialized;
+  RealInferenceTestService get realInferenceService => _service.realInferenceTestService;
 
   Future<void> initialize() async {
     await _service.initialize();
@@ -43,6 +46,32 @@ class VisionDetectionProvider extends ChangeNotifier {
   Future<void> runModelInference() async {
     await _service.runModelInference();
     notifyListeners();
+  }
+
+  /// التقاط عينة واستنتاج تسلسل حقيقي (TEST A أو TEST B)
+  Future<SingleRealInferenceResult> captureRealInference({required String testLabel}) async {
+    final result = await _service.realInferenceTestService.captureAndInfer(testLabel: testLabel);
+    notifyListeners();
+    return result;
+  }
+
+  /// بدء احتساب نافذة 128 إطاراً جديدة كلياً
+  void startNewTestWindow() {
+    _service.realInferenceTestService.startNewTestWindow();
+    notifyListeners();
+  }
+
+  /// تصفير جلسة فحص الاستنتاج الحقيقي
+  void resetRealInferenceSession() {
+    _service.realInferenceTestService.resetSession();
+    notifyListeners();
+  }
+
+  /// نسخ تقرير الاستنتاج الحقيقي إلى الحافظة
+  Future<String> copyRealInferenceReport() async {
+    final report = await _service.realInferenceTestService.copyReportToClipboard();
+    notifyListeners();
+    return report;
   }
 
   /// نسخ تقرير جودة التسلسل إلى الحافظة

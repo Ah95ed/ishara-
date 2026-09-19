@@ -45,4 +45,3 @@ flutter:
   assets:
     - assets/models/ishara_model.tflite
     - assets/models/ishara_vocab.json
-    - assets/models/static_hand_test.jpg
