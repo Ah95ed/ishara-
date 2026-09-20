@@ -1,6 +1,8 @@
 import 'package:flutter/services.dart';
 import 'package:ishara/ml/buffer/ishara_frame_ring_buffer.dart';
+import 'package:ishara/ml/ctc/ishara_ctc_decoder.dart';
 import 'package:ishara/ml/model/ishara_tflite_service.dart';
+import 'package:ishara/models/ctc_vocab_result.dart';
 import 'package:ishara/models/real_inference_result.dart';
 import 'package:ishara/services/vision_detection_service.dart';
 
@@ -189,22 +191,63 @@ class RealInferenceTestService {
         uniqueClasses: rawOutput.uniqueClasses,
         blankTop1Count: rawOutput.blankTop1Count,
         flatOutput: rawOutput.flatOutput,
+        ctcResult: IsharaCtcDecoder.decodeRawArgmax(
+          rawOutput.rawArgmax,
+          capturedAt: now,
+          nanCount: rawOutput.nanCount,
+          infCount: rawOutput.infCount,
+        ),
+      );
+
+      final fullResult = SingleRealInferenceResult(
+        testLabel: result.testLabel,
+        capturedAt: result.capturedAt,
+        isSuccess: result.isSuccess,
+        errorCode: result.errorCode,
+        errorMessage: result.errorMessage,
+        inferenceTimeMs: result.inferenceTimeMs,
+        bufferCount: result.bufferCount,
+        inputShape: result.inputShape,
+        inputNanCount: result.inputNanCount,
+        inputInfCount: result.inputInfCount,
+        isChronological: result.isChronological,
+        oldestFrameSequenceId: result.oldestFrameSequenceId,
+        newestFrameSequenceId: result.newestFrameSequenceId,
+        rawKeypointCoveragePct: result.rawKeypointCoveragePct,
+        imputationPct: result.imputationPct,
+        rightHandCoveragePct: result.rightHandCoveragePct,
+        leftHandCoveragePct: result.leftHandCoveragePct,
+        lipsCoveragePct: result.lipsCoveragePct,
+        bodyCoveragePct: result.bodyCoveragePct,
+        outputShape: result.outputShape,
+        outputNanCount: result.outputNanCount,
+        outputInfCount: result.outputInfCount,
+        outputMin: result.outputMin,
+        outputMax: result.outputMax,
+        outputMean: result.outputMean,
+        outputStdDev: result.outputStdDev,
+        rawArgmax: result.rawArgmax,
+        uniqueClasses: result.uniqueClasses,
+        blankTop1Count: result.blankTop1Count,
+        flatOutput: result.flatOutput,
+        ctcResult: result.ctcResult,
+        ctcVocabResult: runCtcVocabDecoding(result),
       );
 
       // حفظ النتيجة وتحديث الحالة
       if (testLabel == 'TEST A') {
-        _resultA = result;
+        _resultA = fullResult;
         _testASequenceId = inputSequence.newestFrameSequenceId;
         _resultB = null;
         _comparison = null;
       } else {
-        _resultB = result;
+        _resultB = fullResult;
         if (_resultA != null && _resultA!.isSuccess) {
-          _comparison = RealInferenceComparisonResult.compare(_resultA!, result);
+          _comparison = RealInferenceComparisonResult.compare(_resultA!, fullResult);
         }
       }
 
-      return result;
+      return fullResult;
     } catch (e) {
       final fail = SingleRealInferenceResult.failure(
         testLabel: testLabel,
@@ -263,6 +306,101 @@ class RealInferenceTestService {
   /// نسخ التقرير إلى الحافظة
   Future<String> copyReportToClipboard() async {
     final report = generateReport();
+    await Clipboard.setData(ClipboardData(text: report));
+    return report;
+  }
+
+  /// توليد تقرير فك تشفير CTC
+  String generateCtcReport({String testLabel = 'TEST A'}) {
+    final ctc = (testLabel == 'TEST B') ? _resultB?.ctcResult : _resultA?.ctcResult;
+    if (ctc != null) {
+      return ctc.toReportText();
+    }
+    // إذا لم يتوفر بعد، نولد تقرير افتراضي
+    return IsharaCtcDecoder.decodeRawArgmax(const []).toReportText();
+  }
+
+  /// نسخ تقرير CTC إلى الحافظة
+  Future<String> copyCtcReportToClipboard({String testLabel = 'TEST A'}) async {
+    final report = generateCtcReport(testLabel: testLabel);
+    await Clipboard.setData(ClipboardData(text: report));
+    return report;
+  }
+
+  /// فك التشفير وربط المفردات لاستنتاج حقيقي محدد (Test A أو Test B)
+  CtcVocabResult runCtcVocabDecoding(SingleRealInferenceResult? inferenceResult) {
+    if (inferenceResult == null || !inferenceResult.isSuccess) {
+      return CtcVocabResult.failure(
+        testLabel: inferenceResult?.testLabel ?? 'NO_TEST',
+        errorCode: 'E_NO_REAL_INFERENCE',
+        errorMessage: 'NO_REAL_INFERENCE_AVAILABLE',
+        capturedAt: DateTime.now(),
+        vocabFile: _visionService.vocabService.assetPath,
+        isVocabLoaded: _visionService.vocabService.isLoaded,
+        vocabEntries: _visionService.vocabService.entriesCount,
+      );
+    }
+
+    final ctc = inferenceResult.ctcResult ??
+        IsharaCtcDecoder.decodeRawArgmax(
+          inferenceResult.rawArgmax,
+          capturedAt: inferenceResult.capturedAt,
+          nanCount: inferenceResult.outputNanCount,
+          infCount: inferenceResult.outputInfCount,
+        );
+
+    final vocabService = _visionService.vocabService;
+    final vocabValidation = vocabService.validateDecodedIds(ctc.decodedIds);
+
+    final predictedGlosses = <GlossItem>[];
+    final finalGlossSequence = <String>[];
+    for (final id in ctc.decodedIds) {
+      final gloss = vocabService.getGloss(id);
+      predictedGlosses.add(GlossItem(classId: id, gloss: gloss));
+      finalGlossSequence.add(gloss);
+    }
+
+    final bool isOutputShapePass = inferenceResult.outputShape.length == 3 &&
+        inferenceResult.outputShape[0] == 1 &&
+        inferenceResult.outputShape[1] == 29 &&
+        inferenceResult.outputShape[2] == 684;
+
+    return CtcVocabResult(
+      testLabel: inferenceResult.testLabel,
+      capturedAt: inferenceResult.capturedAt,
+      isSuccess: true,
+      outputShape: inferenceResult.outputShape,
+      classesCount: 684,
+      blankId: 0,
+      sequenceQualityPct: inferenceResult.rawKeypointCoveragePct,
+      imputationPct: inferenceResult.imputationPct,
+      ctcResult: ctc,
+      vocabFile: vocabService.assetPath,
+      isVocabLoaded: vocabService.isLoaded,
+      vocabEntries: vocabService.entriesCount,
+      blankHandlingPass: vocabValidation.blankHandlingPass,
+      missingIds: vocabValidation.missingIds,
+      predictedGlosses: predictedGlosses,
+      finalGlossSequence: finalGlossSequence,
+      ctcUnitTestsPass: IsharaCtcDecoder.runSelfTests(),
+      isOutputShapePass: isOutputShapePass,
+      isIdRangePass: ctc.isIdsRangeValid,
+      isVocabMappingPass: vocabValidation.isPass,
+      nanCount: inferenceResult.outputNanCount,
+      infCount: inferenceResult.outputInfCount,
+    );
+  }
+
+  /// الحصول على تقرير CTC + Vocab لـ Test A أو Test B
+  String generateCtcVocabReport({String testLabel = 'TEST A'}) {
+    final result = (testLabel == 'TEST B') ? _resultB : _resultA;
+    final ctcVocab = result?.ctcVocabResult ?? runCtcVocabDecoding(result);
+    return ctcVocab.toReportText();
+  }
+
+  /// نسخ تقرير CTC + Vocab الكامل المطابق للمواصفات
+  Future<String> copyCtcVocabReportToClipboard({String testLabel = 'TEST A'}) async {
+    final report = generateCtcVocabReport(testLabel: testLabel);
     await Clipboard.setData(ClipboardData(text: report));
     return report;
   }

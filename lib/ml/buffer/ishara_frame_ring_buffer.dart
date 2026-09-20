@@ -338,6 +338,13 @@ class IsharaFrameRingBuffer {
     return frames;
   }
 
+  /// الحصول على أحدث إطار مضاف إلى الـ Buffer
+  IsharaBufferFrame? getLatestFrame() {
+    if (_count == 0) return null;
+    final int latestIndex = (_head - 1 + capacity) % capacity;
+    return _slots[latestIndex];
+  }
+
   /// تطبيق Backward-Fill لليدين على نسخة الـ Snapshot فقط
   /// المنطق من datasetv2.py:
   /// من Frame 126 نزولاً إلى 0: إذا كان كامل اليد في الإطار أصفار، يتم نسخه من الإطار i+1

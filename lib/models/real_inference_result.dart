@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:ishara/ml/ctc/ishara_ctc_decoder.dart';
+import 'package:ishara/models/ctc_vocab_result.dart';
 
 /// نتيجة استنتاج تسلسل حقيقي واحد (Test A أو Test B)
 class SingleRealInferenceResult {
@@ -45,6 +47,12 @@ class SingleRealInferenceResult {
   // ── مصفوفة المخرجات المسطحة للمقارنة وحساب الفروق الدقيقة (19,836 Floats) ──
   final Float32List flatOutput;
 
+  // ── نتيجة فك تشفير CTC (CTC Decode Result) ──
+  final CtcDecodeResult? ctcResult;
+
+  // ── نتيجة فك التشفير وربط المفردات (CTC + Vocabulary Result) ──
+  final CtcVocabResult? ctcVocabResult;
+
   const SingleRealInferenceResult({
     required this.testLabel,
     required this.capturedAt,
@@ -76,6 +84,8 @@ class SingleRealInferenceResult {
     required this.uniqueClasses,
     required this.blankTop1Count,
     required this.flatOutput,
+    this.ctcResult,
+    this.ctcVocabResult,
   });
 
   /// إنشاء نتيجة فاشلة مع كود خطأ محدد قبل تشغيل الموديل

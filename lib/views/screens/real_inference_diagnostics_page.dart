@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:ishara/models/real_inference_result.dart';
 import 'package:ishara/providers/vision_detection_provider.dart';
+import 'package:ishara/views/screens/ctc_diagnostics_page.dart';
 import 'package:provider/provider.dart';
 
 /// RealInferenceDiagnosticsPage
@@ -98,6 +99,18 @@ class _RealInferenceDiagnosticsPageState extends State<RealInferenceDiagnosticsP
         ),
         centerTitle: true,
         actions: [
+          IconButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const CtcDiagnosticsPage(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.code_rounded),
+            tooltip: 'CTC Diagnostics',
+          ),
           IconButton(
             onPressed: _copyReport,
             icon: const Icon(Icons.copy_rounded),

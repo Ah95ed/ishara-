@@ -18,7 +18,9 @@ import 'package:ishara/ml/preprocessing/ishara_missing_point_handler.dart';
 import 'package:ishara/ml/preprocessing/ishara_model_input_validator.dart';
 import 'package:ishara/ml/preprocessing/ishara_normalizer.dart';
 import 'package:ishara/ml/preprocessing/ishara_training_normalizer.dart';
+import 'package:ishara/ml/vocab/ishara_vocab_service.dart';
 import 'package:ishara/models/body_parts_detection_state.dart';
+import 'package:ishara/services/ishara_continuous_sign_service.dart';
 import 'package:ishara/services/real_inference_test_service.dart';
 
 /// موازن الحالة المعتمد على عدد الإطارات (Frame-based Stabilizer)
@@ -141,13 +143,21 @@ class VisionDetectionService {
   final IsharaMissingPointHandler _missingPointHandler = IsharaMissingPointHandler();
   final IsharaFrameRingBuffer _ringBuffer = IsharaFrameRingBuffer();
   final IsharaTfliteService _tfliteService = IsharaTfliteService();
+  final IsharaVocabService _vocabService = IsharaVocabService();
   late final RealInferenceTestService _realInferenceTestService = RealInferenceTestService(this);
+  late final IsharaContinuousSignService _continuousSignService = IsharaContinuousSignService(
+    ringBuffer: _ringBuffer,
+    tfliteService: _tfliteService,
+    vocabService: _vocabService,
+  );
   DateTime? _lastDiagnosticLogTime;
 
   bool get isInitialized => _isInitialized;
   IsharaFrameRingBuffer get ringBuffer => _ringBuffer;
   IsharaTfliteService get tfliteService => _tfliteService;
+  IsharaVocabService get vocabService => _vocabService;
   RealInferenceTestService get realInferenceTestService => _realInferenceTestService;
+  IsharaContinuousSignService get continuousSignService => _continuousSignService;
 
   /// تحويل إحداثيات كواشف ML Kit إلى إحداثيات Portrait موحدة ومطبعة [0..1]
   /// يعالج بدقة:
@@ -228,8 +238,11 @@ class VisionDetectionService {
       // 4. تهيئة محرك TFLite وفحص مصفوفات الموديل الحقيقية [1, 128, 86, 2] -> [1, 29, 684]
       await _tfliteService.initialize();
 
+      // 5. تحميل قاموس الكلمات والمفردات لربط مخرجات الموديل
+      await _vocabService.loadVocabulary();
+
       _isInitialized = true;
-      debugPrint('[VisionDetectionService] ✅ Initialized all 3 Vision Detectors + TFLite successfully.');
+      debugPrint('[VisionDetectionService] ✅ Initialized all 3 Vision Detectors + TFLite + Vocabulary successfully.');
     } catch (e, stack) {
       _isInitialized = false;
       debugPrint('[VisionDetectionService] ❌ Initialization failed: $e\n$stack');
@@ -672,7 +685,11 @@ class VisionDetectionService {
         metadata: frameMeta,
       );
 
-      // ملاحظة: التشغيل التلقائي للاستنتاج معطل التزاماً بمرحلة قياس جودة التسلسل (Sequence Quality Analyzer)
+      final latestBufferFrame = _ringBuffer.getLatestFrame();
+      if (latestBufferFrame != null) {
+        _continuousSignService.onFrameIngested(latestBufferFrame);
+      }
+
       final ringBufferStatus = _ringBuffer.getStatus();
       final modelPipelineStatus = _tfliteService.getStatus();
       final int landmarkAgeMs = DateTime.now().difference(now).inMilliseconds;

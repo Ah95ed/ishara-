@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:ishara/models/body_parts_detection_state.dart';
 import 'package:ishara/models/real_inference_result.dart';
+import 'package:ishara/services/ishara_continuous_sign_service.dart';
 import 'package:ishara/services/real_inference_test_service.dart';
 import 'package:ishara/services/vision_detection_service.dart';
 
@@ -17,6 +18,7 @@ class VisionDetectionProvider extends ChangeNotifier {
   VisionLandmarksState get state => _state;
   bool get isInitialized => _service.isInitialized;
   RealInferenceTestService get realInferenceService => _service.realInferenceTestService;
+  IsharaContinuousSignService get continuousSignService => _service.continuousSignService;
 
   Future<void> initialize() async {
     await _service.initialize();
