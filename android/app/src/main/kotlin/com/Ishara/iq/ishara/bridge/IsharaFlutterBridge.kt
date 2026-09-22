@@ -1,4 +1,4 @@
-package com.Ishara.iq.ishara.bridge
+﻿package com.Ishara.iq.ishara.bridge
 
 import android.app.Activity
 import android.os.Handler
@@ -56,21 +56,7 @@ class IsharaFlutterBridge(
     private val landmarkEngine = LandmarkEngine(activity)
     private val signSegmenter = SignSegmenter()
     private val modelRunner = IsharaModelRunner(activity)
-    private val cameraEngine = IsharaCameraEngine(
-        context = activity,
-        lifecycleOwner = lifecycleOwner,
-        onFrame = { imageProxy, timestampMs ->
-            // معالجة كل إطار صورة يخرج من ImageAnalysis
-            landmarkEngine.processImageProxy(
-                imageProxy = imageProxy,
-                timestampMs = timestampMs,
-                isFrontCamera = cameraEngine.isFrontCamera,
-                onResult = { landmarkResult ->
-                    onLandmarkResult(landmarkResult.rawFrame, landmarkResult.qualityMetrics)
-                }
-            )
-        }
-    )
+    private lateinit var cameraEngine: IsharaCameraEngine
 
     // لقطات تشخيصية لتقرير النسخ (Section 35)
     private var latestQualityMetrics: FrameQualityMetrics? = null
@@ -79,9 +65,24 @@ class IsharaFlutterBridge(
     private var latestInferenceResult: NativeInferenceResult? = null
     private var lastError: String = "NONE"
 
-    init {
+        init {
         methodChannel.setMethodCallHandler(this)
         eventChannel.setStreamHandler(this)
+
+        cameraEngine = IsharaCameraEngine(
+            context = activity,
+            lifecycleOwner = lifecycleOwner,
+            onFrame = { imageProxy, timestampMs ->
+                landmarkEngine.processImageProxy(
+                    imageProxy = imageProxy,
+                    timestampMs = timestampMs,
+                    isFrontCamera = cameraEngine.isFrontCamera,
+                    onResult = { landmarkResult ->
+                        onLandmarkResult(landmarkResult.rawFrame, landmarkResult.qualityMetrics)
+                    }
+                )
+            }
+        )
     }
 
     fun onPreviewViewCreated(previewView: PreviewView) {

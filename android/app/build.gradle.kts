@@ -1,7 +1,5 @@
-import java.util.Properties
+﻿import java.util.Properties
 import java.io.FileInputStream
-
-
 
 plugins {
     id("com.android.application")
@@ -41,8 +39,6 @@ android {
             keyPassword = keystoreProperties["keyPassword"] as String
             storeFile = keystoreProperties["storeFile"]?.let { file(it) }
             storePassword = keystoreProperties["storePassword"] as String
-       
-     
         }
     }
 
@@ -62,7 +58,7 @@ android {
         noCompress += listOf("tflite")
     }
 
-        packaging {
+    packaging {
         jniLibs {
             pickFirsts.add("lib/**/libtensorflowlite_jni.so")
             pickFirsts.add("lib/**/libtensorflowlite.so")
@@ -78,7 +74,11 @@ android {
             pickFirsts.add("**/libc++_shared.so")
         }
     }
+}
 
+configurations.all {
+    exclude(group = "org.tensorflow", module = "tensorflow-lite")
+    exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
 }
 
 dependencies {
@@ -93,9 +93,9 @@ dependencies {
     implementation("com.google.mlkit:pose-detection:18.0.0-beta5")
     implementation("com.google.mlkit:face-mesh-detection:16.0.0-beta3")
 
-    // TensorFlow Lite
-    implementation("org.tensorflow:tensorflow-lite:2.16.1")
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+    // LiteRT (Successor to TensorFlow Lite - provides org.tensorflow.lite.Interpreter)
+    implementation("com.google.ai.edge.litert:litert:1.4.2")
+    implementation("com.google.ai.edge.litert:litert-api:1.4.2")
 
     // Coroutines & Lifecycle
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
@@ -111,4 +111,3 @@ kotlin {
 flutter {
     source = "../.."
 }
-
