@@ -58,17 +58,30 @@ android {
         }
     }
 
-    // buildTypes {
-    //     release {
-    //         // TODO: Add your own signing config for the release build.
-    //         // Signing with the debug keys for now, so `flutter run --release` works.
-    //         signingConfig = signingConfigs.getByName("debug")
-    //         proguardFiles(
-    //             getDefaultProguardFile("proguard-android-optimize.txt"),
-    //             "proguard-rules.pro"
-    //         )
-    //     }
-    // }
+    androidResources {
+        noCompress += listOf("tflite")
+    }
+}
+
+dependencies {
+    // CameraX
+    val cameraxVersion = "1.4.1"
+    implementation("androidx.camera:camera-core:$cameraxVersion")
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
+
+    // ML Kit (Pose & Face Mesh)
+    implementation("com.google.mlkit:pose-detection:18.0.0-beta5")
+    implementation("com.google.mlkit:face-mesh-detection:16.0.0-beta3")
+
+    // TensorFlow Lite
+    implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+
+    // Coroutines & Lifecycle
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
 }
 
 kotlin {
@@ -80,3 +93,4 @@ kotlin {
 flutter {
     source = "../.."
 }
+

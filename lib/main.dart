@@ -6,6 +6,7 @@ import 'package:ishara/models/camera_state_model.dart';
 import 'package:ishara/providers/vision_detection_provider.dart';
 import 'package:ishara/services/camera_service.dart';
 import 'package:ishara/services/hand_detection_service.dart';
+import 'package:ishara/services/ishara_native_vision_service.dart';
 import 'package:ishara/services/vision_detection_service.dart';
 import 'package:ishara/theme/app_theme.dart';
 import 'package:ishara/views/home_view.dart';
@@ -29,6 +30,7 @@ class _IsharaAppState extends State<IsharaApp> {
   late final VisionDetectionService _visionDetectionService;
   late final VisionDetectionProvider _visionDetectionProvider;
   late final IsharaTestController _isharaTestController;
+  late final IsharaNativeVisionService _nativeVisionService;
 
   @override
   void initState() {
@@ -38,11 +40,18 @@ class _IsharaAppState extends State<IsharaApp> {
     _visionDetectionService = VisionDetectionService();
     _visionDetectionProvider = VisionDetectionProvider(_visionDetectionService);
     _isharaTestController = IsharaTestController(_visionDetectionService);
+    _nativeVisionService = IsharaNativeVisionService();
 
     _initializeServices();
   }
 
   Future<void> _initializeServices() async {
+    try {
+      await _nativeVisionService.initialize();
+    } catch (e) {
+      debugPrint('[Main] ⚠️ NativeVisionService init error: $e');
+    }
+
     try {
       await _handDetectionService.initialize();
     } catch (e) {
@@ -58,6 +67,7 @@ class _IsharaAppState extends State<IsharaApp> {
 
   @override
   void dispose() {
+    _nativeVisionService.dispose();
     _isharaTestController.dispose();
     _visionDetectionProvider.dispose();
     _handDetectionService.dispose();
@@ -75,6 +85,7 @@ class _IsharaAppState extends State<IsharaApp> {
         ),
         ChangeNotifierProvider.value(value: _visionDetectionProvider),
         ChangeNotifierProvider.value(value: _isharaTestController),
+        ChangeNotifierProvider.value(value: _nativeVisionService),
       ],
       child: MaterialApp(
         title: AppConstants.appName,
