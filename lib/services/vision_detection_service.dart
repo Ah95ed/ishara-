@@ -13,6 +13,7 @@ import 'package:ishara/keypoints/keypoint_normalizer.dart';
 import 'package:ishara/keypoints/keypoint_validator.dart';
 import 'package:ishara/ml/analyzer/ishara_sequence_quality_analyzer.dart';
 import 'package:ishara/ml/buffer/ishara_frame_ring_buffer.dart';
+import 'package:ishara/ml/diagnostics/ishara_pipeline_tracer.dart';
 import 'package:ishara/ml/model/ishara_tflite_service.dart';
 import 'package:ishara/ml/preprocessing/ishara_missing_point_handler.dart';
 import 'package:ishara/ml/preprocessing/ishara_model_input_validator.dart';
@@ -242,9 +243,31 @@ class VisionDetectionService {
       await _vocabService.loadVocabulary();
 
       _isInitialized = true;
+      IsharaPipelineTracer.instance.updateSystemHealth(
+        cameraReady: true,
+        cameraStreaming: true,
+        cameraLens: 'Front / Back',
+        cameraWidth: 640,
+        cameraHeight: 480,
+        poseReady: _poseDetector != null,
+        faceReady: _faceMeshDetector != null,
+        handReady: _handDetector != null,
+        tfliteReady: _tfliteService.isReady,
+        tfliteState: _tfliteService.state.displayName,
+        modelSizeMb: _tfliteService.modelSizeMb,
+        tfliteError: _tfliteService.lastErrorMessage,
+        vocabReady: _vocabService.isLoaded,
+        vocabCount: _vocabService.entriesCount,
+        vocabError: _vocabService.errorMessage,
+      );
       debugPrint('[VisionDetectionService] ✅ Initialized all 3 Vision Detectors + TFLite + Vocabulary successfully.');
     } catch (e, stack) {
       _isInitialized = false;
+      IsharaPipelineTracer.instance.recordError(
+        stage: PipelineStage.systemInit,
+        error: e,
+        stackTrace: stack,
+      );
       debugPrint('[VisionDetectionService] ❌ Initialization failed: $e\n$stack');
     }
   }
@@ -689,6 +712,21 @@ class VisionDetectionService {
       if (latestBufferFrame != null) {
         _continuousSignService.onFrameIngested(latestBufferFrame);
       }
+
+      IsharaPipelineTracer.instance.updateLandmarks(
+        LandmarkExtractionTelemetry(
+          personDetected: personDetected,
+          headPoints: actualHeadPoints,
+          upperBodyPoints: actualUpperBodyPoints,
+          faceMeshPoints: actualFacePoints,
+          lipsPoints: actualModelFaceLipPoints,
+          rightHandPoints: actualRightHandPoints,
+          leftHandPoints: actualLeftHandPoints,
+          rawDetectedCount: preparedFrame.rawDetectedCount,
+          imputedCount: preparedFrame.imputedCount,
+          fps: _currentFps,
+        ),
+      );
 
       final ringBufferStatus = _ringBuffer.getStatus();
       final modelPipelineStatus = _tfliteService.getStatus();
