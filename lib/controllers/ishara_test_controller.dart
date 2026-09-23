@@ -1,26 +1,42 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:ishara/ml/activity/ishara_sign_activity_detector.dart';
+import 'package:ishara/ml/buffer/ishara_frame_ring_buffer.dart';
 import 'package:ishara/ml/ctc/ishara_ctc_decoder.dart';
+import 'package:ishara/ml/temporal/ishara_temporal_resampler.dart';
 import 'package:ishara/models/ishara_recognition_test_session.dart';
 import 'package:ishara/services/vision_detection_service.dart';
 
 /// IsharaTestController
-/// متحكم دورة حياة تجربة الاختبار البسيطة والمباشرة لـ Ishara:
-/// 1. IDLE: الحالة: جاهز -> زر [ ابدأ الاختبار ]
-/// 2. COLLECTING: جاري الالتقاط... مع شريط تقدم (0..128) وزمن أمان 15 ثانية
-/// 3. PROCESSING: جاري التحليل... (استنتاج TFLite واحد + CTC + Vocab)
-/// 4. RESULT: النتيجة: بنت - اخ - صغير -> زر [ نسخ النتيجة ] وزر [ اختبار جديد ]
-/// 5. FAILED: لم تكتمل البيانات، أعد المحاولة -> زر [ اختبار جديد ]
+/// متحكم المسار الكامل لترجمة إشارات لغة الإشارة عبر Flutter Camera:
+/// 1. Flutter Camera (Highest stable FPS, ResolutionPreset.medium 640x480)
+/// 2. Latest Frame Only (إسقاط الفريمات المتأخرة ومنع تراكم Backlog)
+/// 3. استخراج النقاط الـ 86 (KeypointMapper86 + KeypointNormalizer)
+/// 4. اكتشاف بداية الحركة (Sign Start Detection + Body-Relative Motion)
+/// 5. Pre-roll buffer (~10 فريمات ما قبل الحركة)
+/// 6. تسجيل الحركة نفسها (Recording active sign frames)
+/// 7. اكتشاف نهاية الحركة (Sign End Detection + Hysteresis)
+/// 8. Post-roll buffer (~6 فريمات ما بعد الهدوء لحفظ الـ Handshape)
+/// 9. Temporal Resampling -> 128 (استيفاء خطي زمني ذكي N -> 128 دون انتظار 128 فريم كاميرا)
+/// 10. تشغيل الموديل الحالي [1, 128, 86, 2] -> [1, 29, 684]
+/// 11. فك ترميز Greedy CTC
+/// 12. ربط المفردات واستخراج الكلمات (Gloss Output)
 class IsharaTestController extends ChangeNotifier {
   final VisionDetectionService _visionService;
 
   RecognitionTestState _state = RecognitionTestState.idle;
   int _collectedFrames = 0;
-  int? _startSequenceId;
   DateTime? _sessionStartTime;
+  DateTime? _signStartTime;
   Timer? _safetyTimeoutTimer;
   bool _isExecuting = false;
+  bool _isSigningConfirmed = false;
+  int _postRollRemaining = 6;
+
+  // مخازن ما قبل وما بعد الحركة
+  final List<IsharaBufferFrame> _preRollBuffer = [];
+  final List<IsharaBufferFrame> _activeSignFrames = [];
 
   IsharaRecognitionTestSession? _session;
   String _displayResult = '';
@@ -45,7 +61,7 @@ class IsharaTestController extends ChangeNotifier {
 
   bool get canStartTest => _state.isIdle && !_isExecuting;
 
-  /// بدء جلسة اختبار جديدة من نقطة الصفر
+  /// بدء جلسة اختبار جديدة والترقب لبداية الحركة
   void startSimpleTest() {
     if (!canStartTest) return;
 
@@ -54,12 +70,11 @@ class IsharaTestController extends ChangeNotifier {
     _session = null;
     _collectedFrames = 0;
     _isExecuting = false;
+    _isSigningConfirmed = false;
+    _postRollRemaining = 6;
+    _preRollBuffer.clear();
+    _activeSignFrames.clear();
     _sessionStartTime = DateTime.now();
-
-    // التقاط معرف آخر إطار حالي لبدء العد الجديد من لحظة الضغط تماماً
-    final latestId =
-        _visionService.ringBuffer.getStatus().latestFrameSequenceId ?? 0;
-    _startSequenceId = latestId;
 
     _state = RecognitionTestState.collecting;
     notifyListeners();
@@ -73,23 +88,60 @@ class IsharaTestController extends ChangeNotifier {
     });
   }
 
-  /// يتم استدعاؤها مع كل إطار كاميرا تتم معالجته
+  /// معالجة كل فريم كاميرا جديد (Latest Frame Only)
   void onFrameProcessed(int latestSequenceId) {
-    if (_state != RecognitionTestState.collecting) return;
-    if (_startSequenceId == null) return;
+    final latestFrame = _visionService.ringBuffer.getLatestFrame();
+    if (latestFrame == null) return;
 
-    final count = (latestSequenceId - _startSequenceId!).clamp(0, targetFrames);
-    _collectedFrames = count;
-    notifyListeners();
+    final activityDetector = _visionService.continuousSignService.activityDetector;
+    final actState = activityDetector.state;
 
-    // عند اكتمال الـ 128 إطاراً جديدة: نتوقف فوراً ونحلل
-    if (count >= targetFrames && !_isExecuting) {
-      _safetyTimeoutTimer?.cancel();
-      _onCollectionCompleted();
+    if (_state == RecognitionTestState.collecting) {
+      if (!_isSigningConfirmed) {
+        // ── 5. Pre-roll Buffer: حفظ آخر 10 فريمات قبل الحركة ──
+        if (_preRollBuffer.length >= 10) {
+          _preRollBuffer.removeAt(0);
+        }
+        _preRollBuffer.add(latestFrame.clone());
+
+        // ── 4. اكتشاف بداية الحركة ──
+        if (actState == SignActivityState.signing) {
+          _isSigningConfirmed = true;
+          _signStartTime = DateTime.now();
+          // تفريغ مخزن الـ Pre-roll كاملاً في الإشارة
+          _activeSignFrames.addAll(_preRollBuffer);
+          _preRollBuffer.clear();
+          _collectedFrames = _activeSignFrames.length;
+          notifyListeners();
+        }
+      } else {
+        // ── 6. تسجيل الحركة نفسها ──
+        _activeSignFrames.add(latestFrame.clone());
+        _collectedFrames = _activeSignFrames.length;
+        notifyListeners();
+
+        // ── 7. اكتشاف نهاية الحركة ──
+        if (actState == SignActivityState.ending || actState == SignActivityState.ready) {
+          // ── 8. Post-roll Buffer: جمع فريمات إضافية لحفظ شكل اليد ──
+          if (_postRollRemaining > 0) {
+            _postRollRemaining--;
+          } else {
+            // اكتملت الإشارة بالكامل! نتوقف فوراً دون انتظار 128 فريم
+            _safetyTimeoutTimer?.cancel();
+            _onSignCompleted();
+          }
+        }
+      }
+    } else if (_state == RecognitionTestState.idle) {
+      // إبقاء مخزن الـ Pre-roll محدثاً دائماً حتى قبل الضغط
+      if (_preRollBuffer.length >= 10) {
+        _preRollBuffer.removeAt(0);
+      }
+      _preRollBuffer.add(latestFrame.clone());
     }
   }
 
-  /// انتهاء مهلة الأمان (15 ثانية) قبل اكتمال الـ 128 إطاراً
+  /// انتهاء مهلة الأمان (15 ثانية)
   void _onSafetyTimeout() {
     final duration = _sessionStartTime != null
         ? DateTime.now().difference(_sessionStartTime!).inMilliseconds
@@ -98,55 +150,57 @@ class IsharaTestController extends ChangeNotifier {
     _visionService.continuousSignService.activityDetector
         .forceFinalizeSignActivity(reason: 'TIMEOUT');
 
-    _state = RecognitionTestState.failed;
-    _displayResult = 'لم تكتمل البيانات، أعد المحاولة';
-    _errorMessage = 'انتهت مهلة الـ 15 ثانية قبل اكتمال 128 إطاراً';
-    _session = IsharaRecognitionTestSession.failed(
-      collectedFrames: _collectedFrames,
-      durationMs: duration,
-      reason: 'TIMEOUT',
-      errorMessage: _displayResult,
-    );
-    notifyListeners();
+    if (_activeSignFrames.isNotEmpty && _activeSignFrames.length >= 10) {
+      // إذا كانت هناك فريمات كافية ملتقطة، ننفذ التحليل فوراً بدلاً من الفشل
+      _onSignCompleted();
+    } else {
+      _state = RecognitionTestState.failed;
+      _displayResult = 'لم تكتمل البيانات، أعد المحاولة';
+      _errorMessage = 'انتهت مهلة الـ 15 ثانية قبل اكتمال الإشارة';
+      _session = IsharaRecognitionTestSession.failed(
+        collectedFrames: _activeSignFrames.length,
+        durationMs: duration,
+        reason: 'TIMEOUT',
+        errorMessage: _displayResult,
+      );
+      notifyListeners();
+    }
   }
 
-  /// اكتمال جمع 128 إطاراً وبدء الاستنتاج النهائي الفردي
-  Future<void> _onCollectionCompleted() async {
+  /// اكتمال الإشارة الحقيقية وتنفيذ الاستيفاء والاستنتاج الفوري
+  Future<void> _onSignCompleted() async {
+    if (_isExecuting) return;
     _isExecuting = true;
     _state = RecognitionTestState.processing;
     _displayResult = 'جاري التحليل...';
     notifyListeners();
 
     try {
-      final startTime = _sessionStartTime ?? DateTime.now();
+      final startTime = _signStartTime ?? _sessionStartTime ?? DateTime.now();
+      final totalDurationMs = DateTime.now().difference(startTime).inMilliseconds;
       final inferenceStart = DateTime.now();
 
-      // إغلاق أي مقطع نشاط مفتوح كإجراء أمان
+      // إغلاق مقطع النشاط في الكاشف
       _visionService.continuousSignService.activityDetector
-          .forceFinalizeSignActivity(reason: 'FRAME_LIMIT');
+          .forceFinalizeSignActivity(reason: 'MOTION_QUIET');
 
-      // 1. أخذ لقطة عميقة غير قابلة للتعديل لآخر 128 إطاراً
-      final inputSequence =
-          _visionService.ringBuffer.buildModelInput(applyHandsBackwardFill: true);
-      if (inputSequence == null) {
-        _state = RecognitionTestState.failed;
-        _displayResult = 'تعذر استخراج بيانات الإطارات';
-        _isExecuting = false;
-        notifyListeners();
-        return;
-      }
+      // ── 9. Temporal Resampling -> 128 ──
+      // استيفاء الفريمات الملتقطة (سواء كانت 20 أو 45 فريم) إلى 128 إطاراً بالضبط
+      final resampled = IsharaTemporalResampler.resample(
+        _activeSignFrames,
+        durationMs: totalDurationMs,
+      );
 
-      // 2. تحليل جودة التسلسل في الخلفية
-      final quality =
-          _visionService.ringBuffer.analyzeCurrentSequence(captureTime: DateTime.now());
+      // تحليل جودة التسلسل
+      final quality = _visionService.ringBuffer.analyzeCurrentSequence(
+        captureTime: DateTime.now(),
+      );
 
-      // 3. تشغيل موديل TFLite مرة واحدة فقط
-      final rawOutput =
-          await _visionService.tfliteService.runRealSequenceInference(inputSequence);
-      final inferenceTimeMs =
-          DateTime.now().difference(inferenceStart).inMilliseconds;
-      final totalDurationMs =
-          DateTime.now().difference(startTime).inMilliseconds;
+      // ── 10. تشغيل الموديل الحالي [1, 128, 86, 2] -> [1, 29, 684] ──
+      final rawOutput = await _visionService.tfliteService.runRealSequenceInference(
+        resampled.modelInput,
+      );
+      final inferenceTimeMs = DateTime.now().difference(inferenceStart).inMilliseconds;
 
       if (!rawOutput.isSuccess) {
         _state = RecognitionTestState.failed;
@@ -157,32 +211,26 @@ class IsharaTestController extends ChangeNotifier {
         return;
       }
 
-      // 4. تطبيق Greedy CTC Decode الصارم
+      // ── 11. فك ترميز Greedy CTC ──
       final ctcResult = IsharaCtcDecoder.decodeRawArgmax(rawOutput.rawArgmax);
 
-      // 5. ربط المفردات الرسمية
-      final glosses =
-          _visionService.vocabService.mapIdsToGlosses(ctcResult.decodedIds);
+      // ── 12. ربط المفردات واستخراج الكلمات (Gloss Output) ──
+      final glosses = _visionService.vocabService.mapIdsToGlosses(ctcResult.decodedIds);
 
-      // 6. التحقق من الجودة والنتائج الفارغة وفق الشروط
       String finalDisplay;
-      if (quality.rawCoveragePercent < 60.0) {
-        // جودة منخفضة جداً (البند 11)
+      if (quality.rawCoveragePercent < 55.0) {
         finalDisplay = 'الإشارة غير واضحة، أعد المحاولة';
       } else if (ctcResult.decodedIds.isEmpty) {
-        // نتيجة CTC فارغة (البند 10)
         finalDisplay = 'لم يتم التعرف على إشارة واضحة';
       } else {
-        // عرض الكلمات المستخرجة فقط (البند 5)
         finalDisplay = glosses.join(' - ');
       }
 
-      // 7. بناء التقرير المخفي للحافظة
       final actDetector = _visionService.continuousSignService.activityDetector;
       _session = IsharaRecognitionTestSession(
         capturedAt: DateTime.now(),
-        collectedFrames: targetFrames,
-        targetFrames: targetFrames,
+        collectedFrames: _activeSignFrames.length,
+        targetFrames: 128,
         durationMs: totalDurationMs,
         sequenceQualityPct: quality.rawCoveragePercent,
         imputationPct: quality.imputationPercent,
@@ -190,7 +238,7 @@ class IsharaTestController extends ChangeNotifier {
         lhCoveragePct: quality.lhCoveragePercent,
         lipsCoveragePct: quality.lipsCoveragePercent,
         bodyCoveragePct: quality.bodyCoveragePercent,
-        inputShape: inputSequence.shape,
+        inputShape: resampled.modelInput.shape,
         outputShape: rawOutput.outputShape,
         inferencePass: true,
         inferenceTimeMs: inferenceTimeMs,
@@ -200,7 +248,7 @@ class IsharaTestController extends ChangeNotifier {
         finalResultDisplay: finalDisplay,
         signStartDetected: actDetector.signStartTime != null,
         signEndDetected: actDetector.signEndTime != null,
-        endReason: actDetector.endReason.isNotEmpty ? actDetector.endReason : 'FRAME_LIMIT',
+        endReason: actDetector.endReason.isNotEmpty ? actDetector.endReason : 'MOTION_QUIET',
         errors: 'NONE',
       );
 
@@ -217,7 +265,7 @@ class IsharaTestController extends ChangeNotifier {
     }
   }
 
-  /// نسخ التقرير النصي التشخيصي الكامل إلى الحافظة (البند 18 و 19)
+  /// نسخ التقرير النصي التشخيصي الكامل
   Future<bool> copyResult() async {
     final reportText = _session?.toClipboardReportText() ??
         'ISHARA SIMPLE TEST RESULT\nResult: $_displayResult';
@@ -225,13 +273,17 @@ class IsharaTestController extends ChangeNotifier {
     return true;
   }
 
-  /// إعادة تعيين جلسة الاختبار والعودة لوضع الجاهزية (البند 20)
+  /// تصفير الجلسة والعودة للجاهزية
   void resetTest() {
     _safetyTimeoutTimer?.cancel();
     _state = RecognitionTestState.idle;
     _collectedFrames = 0;
-    _startSequenceId = null;
+    _isSigningConfirmed = false;
+    _postRollRemaining = 6;
+    _preRollBuffer.clear();
+    _activeSignFrames.clear();
     _sessionStartTime = null;
+    _signStartTime = null;
     _session = null;
     _displayResult = '';
     _errorMessage = null;

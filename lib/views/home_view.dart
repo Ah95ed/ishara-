@@ -57,9 +57,14 @@ class _HomeViewState extends State<HomeView> {
     }
   }
 
+  bool _isProcessingFrame = false;
+
   /// معالجة كل إطار كاميرا في الوضع القديم (Legacy Fallback)
   Future<void> _onLegacyCameraImage(CameraImage image) async {
     if (!mounted || useNativeVision) return;
+    if (_isProcessingFrame) return; // Latest Frame Only: إسقاط الفريمات المتأخرة
+    _isProcessingFrame = true;
+
     try {
       final cameraProvider = context.read<CameraProvider>();
       await cameraProvider.processFrame(image);
@@ -92,6 +97,8 @@ class _HomeViewState extends State<HomeView> {
       if (kDebugMode) {
         debugPrint('[HomeView] ⚠️ Error in _onLegacyCameraImage: $e');
       }
+    } finally {
+      _isProcessingFrame = false;
     }
   }
 
@@ -626,47 +633,141 @@ class _HomeViewState extends State<HomeView> {
               : null,
           icon: const Icon(Icons.play_arrow_rounded, size: 28),
           label: const Text(
-            'ابدأ الاختبار (Legacy)',
+            'ابدأ الاختبار (Flutter Camera)',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Theme.of(context).colorScheme.primary,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           ),
         ),
       );
     } else if (state == RecognitionTestState.collecting) {
-      return Column(
-        children: [
-          const Text('جاري الالتقاط (Legacy)...'),
-          const SizedBox(height: 10),
-          LinearProgressIndicator(value: testController.progressFraction),
-          Text('${testController.collectedFrames} / 128'),
-        ],
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
+        ),
+        child: Column(
+          children: [
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2.2),
+                ),
+                SizedBox(width: 10),
+                Text(
+                  'جاري تسجيل الإشارة...',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.blueGrey),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: LinearProgressIndicator(
+                minHeight: 10,
+                backgroundColor: Colors.grey.withValues(alpha: 0.2),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'الفريمات المسجلة: ${testController.collectedFrames}',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'أوقف يدك عند اكتمال الإشارة للتحليل التلقائي',
+              style: TextStyle(fontSize: 12, color: Colors.blueGrey),
+            ),
+          ],
+        ),
       );
     } else if (state == RecognitionTestState.processing) {
-      return const Center(child: Text('جاري التحليل...'));
+      return const Center(
+        child: Column(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 12),
+            Text(
+              'جاري التحليل والاستيفاء الزمني (128)...',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ],
+        ),
+      );
     } else {
-      return Column(
-        children: [
-          Text(testController.displayResult,
-              style:
-                  const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () => testController.copyResult(),
-                  child: const Text('نسخ النتيجة'),
-                ),
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.green.shade400, width: 1.5),
+        ),
+        child: Column(
+          children: [
+            const Text(
+              'النتيجة:',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.blueGrey),
+            ),
+            const SizedBox(height: 8),
+            SelectableText(
+              testController.displayResult,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => testController.resetTest(),
-                  child: const Text('اختبار جديد'),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      await testController.copyResult();
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('تم نسخ التقرير الكامل ✓'),
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.copy_rounded, size: 20),
+                    label: const Text('نسخ النتيجة', style: TextStyle(fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green.shade700,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ],
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 2,
+                  child: OutlinedButton.icon(
+                    onPressed: () => testController.resetTest(),
+                    icon: const Icon(Icons.refresh_rounded, size: 20),
+                    label: const Text('اختبار جديد'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       );
     }
   }
